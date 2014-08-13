@@ -1,0 +1,17 @@
+/obj/*
+/data/*
+/results/*
+**/*.msh
+**/*.out
+**/*.dat
+**/*.res
+**/*.gif
+**/*.jpg
+**/*.png
+**/*.bmp
+**/*.tiff
+**/*.pdf
+**/*.backup
+**/*.o
+**/*.mod
+**/*.exe
