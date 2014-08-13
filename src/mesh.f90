@@ -16,15 +16,20 @@ module mesh
 		integer,allocatable :: elNum(:),fcNum(:)
 	end type surface
 
+	type elementBins
+		integer,allocatable :: bin(:),adjacency(:)
+	end type elementBins
+
 !	Module variables
 	integer :: meshNumNodes,meshNumElems,meshNumDoms,meshNumSurfs
+	integer,allocatable :: meshStCols(:),meshStRowPtr(:)
 	real(8),allocatable :: meshTemperatures(:),meshForces(:),			&
-	meshVerts(:,:)
+	meshVerts(:,:),meshSt(:)
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
 !	Inputs read from problem data file
 	integer :: nBins = 8
-	character(32) :: meshFile = "a.msh"
+	character(72) :: meshFile = "a.msh"
 
 	contains
 
@@ -54,9 +59,8 @@ module mesh
 
     subroutine openMeshFile(fNum)
         integer,intent(in) :: fNum
-        character(*),intent(in) :: meshFile
 
-        open(unit=fNum,file=fname,form='formatted',status='old',		&
+        open(unit=fNum,file=meshFile,form='formatted',status='old',		&
 		action='read',iostat=openStat)
 		call check_io_error(openStat)
     end subroutine openMeshFile
@@ -173,11 +177,28 @@ module mesh
 !	for example, the routines to populate the neighbours of tetrahedra
 !-----------------------------------------------------------------------!
 
-	subroutine binElements()
-		integer :: i,j,bPerEdge,centRatios(3),elNodes(4)
-		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
+	subroutine getElementNeighbours()
+		integer,parameter :: adjFilNum=200
+		integer :: i,j
+		integer,allocatable :: binAdjacency(:,:)
+		type(elementBins),allocatable :: elBins(:)
 
-		bPerEdge = (nBins+1)**(1.0d0/3.0d0)
+		call binElements(elBins)
+		call getBinAdjacency(elBins)
+		do i=1,nBins
+			call findNeighboursWithinBin()
+			call findNeighboursAcrossBins()
+		end do
+	end subroutine getElementNeighbours
+
+	subroutine binElements(elBins)
+		integer :: i,j,nBPE,binNum,sz,cRs(3),elNodes(4)
+		integer,allocatable :: tempBin(:)
+		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
+		type(elementBins),allocatable,intent(out) :: elBins(:)
+
+		allocate(elBins(nBins))
+		nBPE = (nBins+1)**(1.0d0/3.0d0)
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
@@ -186,18 +207,137 @@ module mesh
 			elVerts = meshVerts(elNodes,:)
 			elCent = sum(elVerts,1)/3.0d0
 			meshElems(i)%centroid = elCent
-			centRatios = ceiling(((elCent-dmin)/edges)*bPerEdge)
-			where(centRatios == 0)
-				centRatios = 1
+			cRs = ceiling(((elCent-dmin)/edges)*nBPE)
+			where(cRs == 0)
+				cRs = 1
 			end where
+			binNum = cRs(1) + (cRs(2)-1)*nBPE + (cRs(3)-1)*nBPE^2
+			sz = size(elBins(binNum)%bin,1)
+			if(sz.gt.0) then
+				allocate(tempBin(sz+1))
+				tempBin(1:sz) = elBins(binNum)%bin
+				tempBin(sz+1) = i
+				call move_alloc(tempBin,elbins(binNum)%bin)
+			else
+				allocate(elBins(binNum)%bin(1))
+				elBins(binNum)%bin = i
+			end if
 		end do
 	end subroutine binElements
 
-	subroutine getElementNeighbours()
-	end subroutine getElementNeighbours
+	subroutine getBinAdjacency(elBins)
+		type(elementBins),allocatable,intent(inout) :: elBins(:)
+	end subroutine getBinAdjacency
 
+	subroutine findNeighboursWithinBin()
+		integer :: i,j,p,q,k,binSize,el1,el2,fc1,fc2,elNo1(4),elNo2(4)
+		logical :: shared
+		type(elementBin) :: singleBin
+
+		binSize = size(singleBin%bin,1)
+		do i=1,binSize-1
+			el1 = singleBin%bin(i)
+			ct = count(meshElems(el1)%neighbours(:,1) > 0)
+			if(ct == 4) cycle
+			elNo1 = meshElems(el1)%nodes
+			do j=i+1,binSize
+				el2 = singleBin%bin(j)
+				elNo2 = meshElems(el2)%nodes
+				call checkForSharedFace(elNo1,elNo2,shared,fc1,fc2)
+				if(shared) then
+					call addNeighbour(el1,el2,fc1,fc2)
+				end if
+			end do
+		end do
+	end subroutine findNeighboursWithinBin
+
+	subroutine findNeighboursAcrossBins()
+		
+	end subroutine findNeighboursAcrossBins
+
+	subroutine addNeighbour(el1,el2,fc1,fc2)
+		integer,intent(in) :: el1,el2,fc1,fc2
+
+		if((any(/el1,el2,fc1,fc2/) == 0)) then
+			write(*,'(a)') "Wrong arguments passed to add neighbour."
+			stop
+		end if
+		meshElems(el1)%neighbours(fc1,1) = el2
+		meshElems(el1)%neighbours(fc1,2) = fc2
+		meshElems(el2)%neighbours(fc2,1) = el1
+		meshElems(el2)%neighbours(fc2,2) = fc1
+	end subroutine addNeighbour
+
+	subroutine checkForSharedFace(elNo1,elNo2,shared,fc1,fc2)
+		integer :: p,q
+		integer,intent(in) :: elNo1(4),elNo2(4)
+		integer,intent(out) :: fc1,fc2
+		logical,intent(out) :: shared
+
+		same1 = 0
+		same2 = 0
+		sameCt = 0
+		shared = .false.
+		fc1 = 0
+		fc2 = 0
+		do p=1,4
+			do q=1,4
+				if(elNo1(p) == elNo2(q)) then
+					sameCt = sameCt+1
+					same1(sameCt) = p
+					same2(sameCt) = q
+				end if
+			end do
+		end do
+		if(sameCt == 3) then
+			shared = .true.
+			fc1 = getFaceFromNodes(same1)
+			fc2 = getFaceFromNodes(same2)
+		end if
+	end subroutine compareNodes
+
+	function getFaceFromNodes(fcNodes) result(fcNum)
+		integer :: indices(3)
+		integer,intent(in) :: fcNodes(3)
+		integer,intent(out) :: fcNum
+
+		call indexedSort(fcNodes,indices)
+		if(fcNodes == (/1,2,3/)) then
+			fcNum = 1
+		elseif(fcNodes == (/1,2,4/)) then
+			fcNum = 2
+		elseif(fcnodes == (/2,3,4/)) then
+			fcNum = 3
+		elseif(fcnodes == (/1,3,4/)) then
+			fcNum = 4
+		else
+			write(*,'(a)') "Face node indices not recognised."
+			stop
+		end if
+	end function getFaceFromNodes
+
+	subroutine indexedSort(a,b)
+		integer,intent(in) :: a
+		integer,intent(out) :: b(size(a,1))
+		integer :: i,j,n,temp
+
+		n = size(a,1)
+		b = (/1:n/)
+		do i=1,n-1
+			do j=i+1,n
+				if(a(i) > a(j)) then
+					temp = a(j)
+					a(j) = a(i)
+					a(i) = temp
+					temp = b(i)
+					b(i) = b(j)
+					b(j) = temp
+				end if
+			end do
+		end do
+	end subroutine indexedsort
 !-----------------------------------------------------------------------!
-!	End of the serial mesh file reading routines
+!	End of the auxiliary routines
 !-----------------------------------------------------------------------!
 
 !-----------------------------------------------------------------------!
@@ -231,6 +371,25 @@ module mesh
 		end if
 
 	end subroutine setMeshNodalValues
+
+	subroutine saveMeshNodalStiffness(noSt,stCols,stRowPtr)
+		integer,intent(in) :: stCols(:),stRowPtr
+		real(8),intent(in) :: noSt(:)
+
+		if(.not.(allocated(meshSt))) then
+			allocate(meshSt(size(noSt,1)))
+		end if
+		if(.not.(allocated(meshStCols))) then
+			allocate(meshStCols(size(stCols,1)))
+		end if
+		if(.not.(allocated(meshStRowPtr))) then
+			allocate(meshStRowPtr(size(stRowPtr,1)))
+		end if
+
+		meshSt = noSt
+		meshStCols = stCols
+		meshStRowPtr = stRowPtr
+	end subroutine saveMeshNodalStiffness
 
 !-----------------------------------------------------------------------!
 !	End of the setter subroutines
