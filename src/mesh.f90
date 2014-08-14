@@ -3,7 +3,7 @@
 module mesh
 
 	use commonRoutines, only: indexedSort,checkIoError,invertReal4by4,&
-						determinantReal4by4
+						determinantReal4by4,triangleArea
 
 	implicit none
 
@@ -17,6 +17,8 @@ module mesh
 		character(len=16) :: sfName
 		integer :: sfId,numFcs
 		integer,allocatable :: elNum(:),fcNum(:)
+		real(8) :: totalArea
+		real(8),allocatable :: fcArea(:)
 	end type surface
 
 	type elementBin
@@ -31,7 +33,7 @@ module mesh
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
 !	Inputs
-	integer :: nBins = 8
+	integer :: nBins(3) = (/2,2,2/)
 	character(*),parameter :: datDir="../data/",resDir="../results/",	&
 	meshExt=".msh",dataExt=".dat"
 	character(72) :: meshFile = "a"
@@ -130,7 +132,7 @@ module mesh
 	end subroutine readMeshElementDomains
 
 	subroutine readMeshSurfaces(fNum)
-		integer :: i,j,k,cs,ct,numSfFaces,temp(10)
+		integer :: i,j,k,elNum,fcNum,cs,ct,numSfFaces,temp(10)
         integer,intent(in) :: fNum
 		character(16) :: surfName
 		logical :: l
@@ -158,11 +160,13 @@ module mesh
                 do k=1,5
                     if(temp(2*k-1) .ne. 0) then
 						ct = ct+1
-                        meshSurfs(i)%elNum(ct) = temp(2*k-1)
-						meshSurfs(i)%fcNum(ct) = temp(2*k)
+						elNum = temp(2*k-1)
+						fcNum = temp(2*k)
+                        meshSurfs(i)%elNum(ct) = elNum
+						meshSurfs(i)%fcNum(ct) = fcNum
 						if(l) then
-							meshElems(temp(2*k-1))%neighbours(temp(2*k),:) = 	&
-							(/temp(2*k-1),-i/)
+							meshElems(elNum)%neighbours(fcNum,:) = 		&
+							(/elNum,-i/)
 						end if
                     end if
                 end do
@@ -187,25 +191,27 @@ module mesh
 !-----------------------------------------------------------------------!
 
 	subroutine getElementNeighbours()
-		integer :: i,j
+		integer :: i,j,k
 		type(elementBin),allocatable :: elBins(:,:,:)
 
 		call binElements(elBins)
-		call getBinAdjacency(elBins)
-		do i=1,nBins
-			call findNeighboursWithinBin(elBins(i))
-			call findNeighboursAcrossBins(i,elBins)
+		do k=1,nBins(3)
+			do j=1,nBins(2)
+				do i=1,nBins(1)
+					call findNeighboursWithinBin(elBins(i,j,k))
+					call findNeighboursAcrossBins(i,j,k,elBins)
+				end do
+			end do
 		end do
 	end subroutine getElementNeighbours
 
 	subroutine binElements(elBins)
-		integer :: i,j,nBPE,binNum,sz,cRs(3),elNodes(4)
-		integer,allocatable :: tempBin(:)
+		integer :: i,j,sz,cRs(3),elNodes(4)
+		integer,allocatable :: temp(:)
 		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
 		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)
 
-		nBPE = (nBins+1)**(1.0d0/3.0d0)
-		allocate(elBins(nBPE,nBPE,nBPE))
+		allocate(elBins(nBins(1),nBins(2),nBins(3)))
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
@@ -214,16 +220,16 @@ module mesh
 			elVerts = meshVerts(elNodes,:)
 			elCent = sum(elVerts,1)/4.0d0
 			meshElems(i)%centroid = elCent
-			cRs = ceiling(((elCent-dmin)/edges)*nBPE)
+			cRs = ceiling(((elCent-dmin)/edges)*nBins)
 			where(cRs == 0)
 				cRs = 1
 			end where
 			sz = size(elBins(cRs(1),cRs(2),cRs(3))%bin,1)
 			if(sz.gt.0) then
-				allocate(tempBin(sz+1))
-				tempBin(1:sz) = elBins(cRs(1),cRs(2),cRs(3))%bin
-				tempBin(sz+1) = i
-				call move_alloc(tempBin,elBins(cRs(1),cRs(2),cRs(3))%bin)
+				allocate(temp(sz+1))
+				temp(1:sz) = elBins(cRs(1),cRs(2),cRs(3))%bin
+				temp(sz+1) = i
+				call move_alloc(temp,elBins(cRs(1),cRs(2),cRs(3))%bin)
 			else
 				allocate(elBins(cRs(1),cRs(2),cRs(3))%bin(1))
 				elBins(cRs(1),cRs(2),cRs(3))%bin = i
@@ -231,30 +237,9 @@ module mesh
 		end do
 	end subroutine binElements
 
-	subroutine getBinAdjacency(elBins)
-		integer,parameter :: nAdjBins=27,adjFilNum=200
-		integer :: i,j,ct,ind,tempAdj(nAdjBins)
-		character(*),parameter :: adjFile=datDir//"binadjacency.dat"
-		type(elementBin),intent(inout) :: elBins(:)
-
-		open(adjFilNum,file=adjFile)
-		do i=1,nBins
-			read(adjFilNum,*) tempAdj
-			ct = count(tempAdj .ne. 0)
-			allocate(elBins(i)%adjacency(ct))
-			ind = 0
-			do j=1,nAdjBins
- 				if(tempAdj(j) .ne. 0) then
-					ind = ind + 1
-					elBins(i)%adjacency(ind) = tempAdj(j)
-				end if
-			end do
-		end do
-		close(adjFilNum)
-	end subroutine getBinAdjacency
-
 	subroutine findNeighboursWithinBin(singleBin)
-		integer :: i,j,binSize,ct,el1,el2,fc1,fc2,ref,elNo1(4),elNo2(4)
+		integer :: i,j,binSize,ct1,ct2,el1,el2,fc1,fc2,ref,elNo1(4),	&
+		elNo2(4)
 		logical :: shared
 		type(elementBin),intent(in) :: singleBin
 
@@ -262,59 +247,71 @@ module mesh
 		ref = 0
 		do i=1,binSize-1
 			el1 = singleBin%bin(i)
-			ct = count(meshElems(el1)%neighbours(:,1) > 0)
-			if(ct == 4) cycle
+			ct1 = count(meshElems(el1)%neighbours(:,1)>0)
+			if(ct1 == 4) cycle
 			elNo1 = meshElems(el1)%nodes
-			shared = .false.
 			do j=i+1,binSize
+				shared = .false.
 				el2 = singleBin%bin(j)
 				elNo2 = meshElems(el2)%nodes
+				ct2 = count(meshElems(el2)%neighbours(:,1)>0)
+				if(ct2 == 4) cycle
 				call checkForSharedFace(elNo1,elNo2,shared,fc1,fc2)
 				if(shared) then
 					call addNeighbour(el1,el2,fc1,fc2)
+					ct1 = count(meshElems(el1)%neighbours(:,1)>0)
 					ref = ref+1
 				end if
+				if(ct1 == 4) exit
 			end do
 		end do
 	end subroutine findNeighboursWithinBin
 
-	subroutine findNeighboursAcrossBins(binNum,elBins)
-		integer,intent(in) :: binNum
-		integer :: i,j,k,ct,binSz1,binSz2,nAdj,adjBinNum,el1,el2,fc1,	&
-		fc2,elNo1(4),elNo2(4)
+	subroutine findNeighboursAcrossBins(c1,c2,c3,elBins)
+		integer,intent(in) :: c1,c2,c3
+		integer :: i,j,k,ol,il,ct1,ct2,binSz1,binSz2,el1,el2,fc1,fc2,	&
+		elNo1(4),elNo2(4)
 		logical :: shared
 		type(elementBin) :: givenBin,adjBin
-		type(elementBin),intent(in) :: elBins(:)
+		type(elementBin),intent(in) :: elBins(:,:,:)
 
-		givenBin = elBins(binNum)
+		givenBin = elBins(c1,c2,c3)
 		binSz1 = size(givenBin%bin,1)
-		nAdj = size(givenBin%adjacency,1)
-		do i=1,binSz1
-			el1 = givenBin%bin(i)
-			ct = count(meshElems(el1)%neighbours(:,1) > 0)
-			if(ct == 4) cycle
+		currentBin: do ol=1,binSz1
+			el1 = givenBin%bin(ol)
+			ct1 = count(meshElems(el1)%neighbours(:,1)>0)
+			if(ct1 == 4) cycle
 			elNo1 = meshElems(el1)%nodes
-			shared = .false.
-			do j=1,nAdj
-				adjBinNum = elBins(binNum)%adjacency(j)
-				if(adjBinNum == binNum) cycle
-				adjBin = elBins(adjBinNum)
-				binSz2 = size(adjBin%bin,1)
-				do k=1,binSz2
-					el2 = adjBin%bin(k)
-					ct = count(meshElems(el2)%neighbours(:,1) > 0)
-					if(ct == 4) cycle
-					elNo2 = meshElems(el2)%nodes
-					call checkForSharedFace(elNo1,elNo2,shared,fc1,fc2)
-					if(shared) then
-						call addNeighbour(el1,el2,fc1,fc2)
-					end if
-				end do
-				if(shared) then
-					exit
-				end if
-			end do
-		end do
+			zBinIndex: do k=c3-1,c3+1
+				if((k.eq.0).or.(k.gt.nBins(3))) cycle
+				yBinIndex: do j=c2-1,c2+1
+					if((j.eq.0).or.(j.gt.nBins(2))) cycle
+					xBinIndex: do i=c1-1,c1+1
+						if((i.eq.0).or.(i.gt.nBins(1))) cycle
+						if(all((/i,j,k/)==(/c1,c2,c3/))) cycle
+						adjBin = elBins(i,j,k)
+						binSz2 = size(adjBin%bin,1)
+						adjacentBin: do il=1,binSz2
+							shared = .false.
+							el2 = adjBin%bin(il)
+							ct2 = count(meshElems(el2)%neighbours(:,1)>0)
+							if(ct2 == 4) cycle
+							elNo2 = meshElems(el2)%nodes
+							call checkForSharedFace(elNo1,elNo2,shared,	&
+							fc1,fc2)
+							if(shared) then
+								call addNeighbour(el1,el2,fc1,fc2)
+								ct1 = count(meshElems(el1)%neighbours(:,1)>0)
+							end if
+							if(ct1 == 4) exit
+						end do adjacentBin
+						if(ct1 == 4) exit
+					end do xBinIndex
+					if(ct1 == 4) exit
+				end do yBinIndex
+				if(ct1 == 4) exit
+			end do zBinIndex
+		end do currentBin
 	end subroutine findNeighboursAcrossBins
 
 	subroutine addNeighbour(el1,el2,fc1,fc2)
@@ -358,46 +355,45 @@ module mesh
 		end if
 	end subroutine checkForSharedFace
 
+	subroutine populateElementVolumes()
+		integer :: i
+
+		do i=1,meshNumElems
+			meshElems(i)%volume = getElementVolume(i)
+		end do
+	end subroutine populateElementVolumes
+
+	subroutine populateSurfaceFaceAreas()
+		integer :: i,j,nSfFaces
+
+		do i=1,meshNumSurfs
+			nSfFaces = meshSurfs(i)%numFcs
+			if(.not.(allocated(meshSurfs(i)%fcArea))) then
+				allocate(meshSurfs(i)%fcArea(nSfFaces))
+			end if
+			do j=1,nSfFaces
+				meshSurfs(i)%fcArea(j) = getFaceArea(elNum(j),fcNum(j))
+			end do
+		end do
+	end subroutine populateSurfaceFaceAreas
+!-----------------------------------------------------------------------!
+!	End of the auxiliary routines
+!-----------------------------------------------------------------------!
+
 !-----------------------------------------------------------------------!
 !	Element level functions for the mesh
 !-----------------------------------------------------------------------!
 
-	function getFaceIndex(fcNodes) result(fcNum)
-		integer :: fcNum,indices(3)
-		integer,intent(inout) :: fcNodes(3)
+	function getFaceArea(elNum,fcNum) result(fcArea)
+		integer :: fcNodes(3),elNodes(4)
+		integer,intent(in) :: elNum,fcNum
+		real(8) :: fcArea,fcVerts(3,3)
 
-		call indexedSort(fcNodes,indices)
-		if(all(fcNodes == (/1,2,3/))) then
-			fcNum = 1
-		elseif(all(fcNodes == (/1,2,4/))) then
-			fcNum = 2
-		elseif(all(fcNodes == (/2,3,4/))) then
-			fcNum = 3
-		elseif(all(fcNodes == (/1,3,4/))) then
-			fcNum = 4
-		else
-			write(*,'(a)') "Face node indices not recognised."
-			stop
-		end if
-	end function getFaceIndex
-
-	function getFaceNodes(fcNum) result(fcNodes)
-		integer :: fcNodes(3)
-		integer,intent(in) :: fcNum
-
-		if(fcNum == 1) then
-			fcNodes = (/1,2,3/)
-		elseif(fcNum == 2) then
-			fcNodes = (/1,2,4/)
-		elseif(fcNum == 3) then
-			fcNodes = (/2,3,4/)
-		elseif(fcNum == 4) then
-			fcNodes = (/1,3,4/)
-		else
-			write(*,'(a)') "Face index not valid, must be between 1-4."
-			stop
-		end if
-	end function getFaceNodes
+		fcNodes = getFaceNodes(fcNum)
+		elNodes = meshElems(elNum)%nodes
+		fcVerts = meshVerts(elNodes(fcNodes),:)
+		fcArea = triangleArea(fcVerts)
+	end function getFaceArea
 
 	function getElementShapeFunctions(elNum) result(spFns)
 		integer :: elNodes(4)
@@ -454,10 +450,6 @@ module mesh
 
 !-----------------------------------------------------------------------!
 !	End of the element level functions for the mesh
-!-----------------------------------------------------------------------!
-
-!-----------------------------------------------------------------------!
-!	End of the auxiliary routines
 !-----------------------------------------------------------------------!
 
 !-----------------------------------------------------------------------!
