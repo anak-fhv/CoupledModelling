@@ -20,7 +20,7 @@ module mesh
 	end type surface
 
 	type elementBin
-		integer,allocatable :: bin(:),adjacency(:)
+		integer,allocatable :: bin(:)
 	end type elementBin
 
 !	Module variables
@@ -188,7 +188,7 @@ module mesh
 
 	subroutine getElementNeighbours()
 		integer :: i,j
-		type(elementBin),allocatable :: elBins(:)
+		type(elementBin),allocatable :: elBins(:,:,:)
 
 		call binElements(elBins)
 		call getBinAdjacency(elBins)
@@ -202,10 +202,10 @@ module mesh
 		integer :: i,j,nBPE,binNum,sz,cRs(3),elNodes(4)
 		integer,allocatable :: tempBin(:)
 		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
-		type(elementBin),allocatable,intent(out) :: elBins(:)
+		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)
 
-		allocate(elBins(nBins))
 		nBPE = (nBins+1)**(1.0d0/3.0d0)
+		allocate(elBins(nBPE,nBPE,nBPE))
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
@@ -218,16 +218,15 @@ module mesh
 			where(cRs == 0)
 				cRs = 1
 			end where
-			binNum = cRs(1) + (cRs(2)-1)*nBPE + (cRs(3)-1)*nBPE**2
-			sz = size(elBins(binNum)%bin,1)
+			sz = size(elBins(cRs(1),cRs(2),cRs(3))%bin,1)
 			if(sz.gt.0) then
 				allocate(tempBin(sz+1))
-				tempBin(1:sz) = elBins(binNum)%bin
+				tempBin(1:sz) = elBins(cRs(1),cRs(2),cRs(3))%bin
 				tempBin(sz+1) = i
-				call move_alloc(tempBin,elbins(binNum)%bin)
+				call move_alloc(tempBin,elBins(cRs(1),cRs(2),cRs(3))%bin)
 			else
-				allocate(elBins(binNum)%bin(1))
-				elBins(binNum)%bin = i
+				allocate(elBins(cRs(1),cRs(2),cRs(3))%bin(1))
+				elBins(cRs(1),cRs(2),cRs(3))%bin = i
 			end if
 		end do
 	end subroutine binElements
