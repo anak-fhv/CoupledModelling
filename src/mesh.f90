@@ -2,8 +2,9 @@
 
 module mesh
 
-	use commonRoutines, only: indexedSort,checkIoError,invertReal4by4,&
-						determinantReal4by4,triangleArea
+	use commonRoutines, only: indexedSort,checkIoError,getFaceIndex,	&
+							  getFaceNodes,invertReal4by4,				&
+							  determinantReal4by4,triangleArea
 
 	implicit none
 
@@ -364,7 +365,7 @@ module mesh
 	end subroutine populateElementVolumes
 
 	subroutine populateSurfaceFaceAreas()
-		integer :: i,j,nSfFaces
+		integer :: i,j,nSfFaces,elNum,fcNum
 
 		do i=1,meshNumSurfs
 			nSfFaces = meshSurfs(i)%numFcs
@@ -372,7 +373,9 @@ module mesh
 				allocate(meshSurfs(i)%fcArea(nSfFaces))
 			end if
 			do j=1,nSfFaces
-				meshSurfs(i)%fcArea(j) = getFaceArea(elNum(j),fcNum(j))
+				elNum = meshSurfs(i)%elNum(j)
+				fcNum = meshSurfs(i)%fcNum(j)
+				meshSurfs(i)%fcArea(j) = getFaceArea(elNum,fcNum)
 			end do
 		end do
 	end subroutine populateSurfaceFaceAreas

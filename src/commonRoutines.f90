@@ -2,6 +2,8 @@ module commonRoutines
 
 	implicit none
 
+	real(8),parameter :: pi=3.14159265358979d0
+
 	contains
 
     subroutine checkIoError(openStat,unitNum,message)
@@ -61,9 +63,9 @@ module commonRoutines
 		real(8) :: a,s,t,u,temp,pt(3)
 		real(8),intent(in) :: ec(4,3)
 
-		s = myRandom(0)
-		t = myRandom(0)
-		u = myRandom(0)
+		call random_number(s)
+		call random_number(t)
+		call random_number(u)
 		if(s+t > 1.0d0) then
 			s = 1.0d0 - s
 			t = 1.0d0 - t
@@ -81,13 +83,13 @@ module commonRoutines
 		end if
 		a = 1.0d0-s-t-u
 		pt = a*ec(1,:)+s*ec(2,:)+t*ec(3,:)+u*ec(4,:)
-	end subroutine selTetraPoint
+	end function selTetraPoint
 
 	function getRaySphDir() result(dir)
 		real(8) :: r1,r2,th,ph,dir(3)
 
-		r1 = myRandom(0)
-		r2 = myRandom(0)
+		call random_number(r1)
+		call random_number(r2)
 		ph = 2*pi*r1
 		th = acos(1.0d0 - 2.0d0*r2)
 		dir(1) = sin(th)*cos(ph)
@@ -96,25 +98,29 @@ module commonRoutines
 	end function getRaySphDir
 
 	function selTriPoint(fcVerts) result(pt)
-		real(dp):: a,b,c,pt(3)
+		real(8) :: r1,r2,a,b,c,pt(3)
 		real(8),intent(in) :: fcVerts(3,3)
 
-		a = 1.0d0-sqrt(1-myRandom(0))
-    	b = (1.0d0-a)*myRandom(0)
+		call random_number(r1)
+		call random_number(r2)
+		a = 1.0d0-sqrt(1-r1)
+    	b = (1.0d0-a)*r2
 		c = 1-a-b
 		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
 	end function selTriPoint
 
 	function getFaceNorm(fcVerts,remVert,inward) result(fcNorm)
+		integer :: i
 		real(8),parameter :: small=0.000000000001d0
-		real(8) :: remPtDist,fcNorm(3)
+		real(8) :: remPtDist,edge1(3),edge2(3),fcNorm(3)
 		real(8),intent(in) :: fcVerts(3,3),remVert(3)
 		logical,intent(in) :: inward
 
-		fcNorm = cross((fcVerts(2,:)-fcVerts(1,:)),fcVerts(3,:)-		&
-		fcVerts(1,:))
+		edge1 = fcVerts(2,:)-fcVerts(1,:)
+		edge2 = fcVerts(3,:)-fcVerts(1,:)
+		fcNorm = cross_product_3(edge1,edge2)
 		fcNorm = fcNorm/norm2(fcNorm)
-		remPtDist = dot_product(fcNorm,(remVert-fcVerts(1,:))
+		remPtDist = dot_product(fcNorm,(remVert-fcVerts(1,:)))
 		if(inward) then
 			if(remPtDist<0) then
 				do i=1,3
@@ -132,7 +138,7 @@ module commonRoutines
 				end do
 			end if
 		end if
-	end function getFaceInwardNorm
+	end function getFaceNorm
 
 	function getFaceIndex(fcNodes) result(fcNum)
 		integer :: fcNum,indices(3)
