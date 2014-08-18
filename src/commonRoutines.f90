@@ -2,10 +2,16 @@ module commonRoutines
 
 	implicit none
 
-	real(8),parameter :: pi=3.14159265358979d0
+	real(8),parameter :: pi=3.14159265358979d0,sigB=5.673d-8
+	character(*),parameter :: commDatDir="../data/",					&
+	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
 
 	contains
 
+!-----------------------------------------------------------------------!
+!	The following routines work with intrinsic operations, mainly
+!	as an aid to traceback and debugging.
+!-----------------------------------------------------------------------!
     subroutine checkIoError(openStat,unitNum,message)
         integer,intent(in) :: openStat,unitNum
         character(*),intent(in),optional :: message
@@ -21,6 +27,21 @@ module commonRoutines
         end if
         return
     end subroutine checkIoError
+
+	subroutine initRandom()
+		integer,parameter :: rnFilNum=100
+		integer :: i
+		character(*),parameter :: rnFile="/dev/urandom"
+
+		open(rnFilNum,file=rnFile,access='stream',form='UNFORMATTED')
+		read(rnFilNum) i
+		close(rnFilNum)
+		call random_seed(put=(/i/))
+	end subroutine initRandom
+
+!-----------------------------------------------------------------------!
+!	End of intrinsic procedure auxiliaries
+!-----------------------------------------------------------------------!
 
 !-----------------------------------------------------------------------!
 !	The following subroutines and functions are mathematical operations
@@ -213,5 +234,9 @@ module commonRoutines
 			A(2,3)*(A(3,1)*A(4,2)-A(3,2)*A(4,1)))
 
 	end function determinantReal4by4
+
+!-----------------------------------------------------------------------!
+!	End of mathematical operation routines
+!-----------------------------------------------------------------------!
 
 end module commonRoutines

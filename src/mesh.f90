@@ -2,8 +2,9 @@
 
 module mesh
 
-	use commonRoutines, only: indexedSort,checkIoError,getFaceIndex,	&
-							  getFaceNodes,invertReal4by4,				&
+	use commonRoutines, only: commDatDir,commResDir,commMeshExt,		&
+							  commDatExt,indexedSort,checkIoError,		&
+							  getFaceIndex,getFaceNodes,invertReal4by4,	&
 							  determinantReal4by4,triangleArea
 
 	implicit none
@@ -35,8 +36,6 @@ module mesh
 	type(surface),allocatable :: meshSurfs(:)
 !	Inputs
 	integer :: nBins(3) = (/2,2,2/)
-	character(*),parameter :: datDir="../data/",resDir="../results/",	&
-	meshExt=".msh",dataExt=".dat"
 	character(72) :: meshFile = "a"
 
 	contains
@@ -53,7 +52,7 @@ module mesh
 		integer :: mDets(7)
 		character(72) :: meshFileName
 
-		meshFileName = datDir//trim(adjustl(meshFile))//meshExt
+		meshFileName = commDatDir//trim(adjustl(meshFile))//commMeshExt
         call openmeshfile(fNum,meshFileName)
         call readmeshdetails(fNum,mDets)
 		meshNumNodes = mDets(1)
@@ -366,17 +365,21 @@ module mesh
 
 	subroutine populateSurfaceFaceAreas()
 		integer :: i,j,nSfFaces,elNum,fcNum
+		real(8) :: aTot
 
 		do i=1,meshNumSurfs
 			nSfFaces = meshSurfs(i)%numFcs
 			if(.not.(allocated(meshSurfs(i)%fcArea))) then
 				allocate(meshSurfs(i)%fcArea(nSfFaces))
 			end if
+			aTot = 0.0d0
 			do j=1,nSfFaces
 				elNum = meshSurfs(i)%elNum(j)
 				fcNum = meshSurfs(i)%fcNum(j)
 				meshSurfs(i)%fcArea(j) = getFaceArea(elNum,fcNum)
+				aTot = aTot + meshSurfs(i)%fcArea(j)
 			end do
+			meshSurfs(i)%totalArea = aTot
 		end do
 	end subroutine populateSurfaceFaceAreas
 !-----------------------------------------------------------------------!
