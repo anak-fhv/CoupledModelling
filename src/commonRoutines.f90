@@ -2,7 +2,9 @@ module commonRoutines
 
 	implicit none
 
-	real(8),parameter :: pi=3.14159265358979d0,sigB=5.673d-8
+	real(8),parameter :: pi=3.14159265358979d0,sigB=5.673d-8,			&
+	LARGE=1.0d3,MEGA=1.0d6,GIGA=1.0d9,SMALL=1.0d-3,MICRO=1.0d-6,		&
+	NANO=1.0d-9,PICO=1.0d-12
 	character(*),parameter :: commDatDir="../data/",					&
 	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
 
@@ -106,6 +108,18 @@ module commonRoutines
 		pt = a*ec(1,:)+s*ec(2,:)+t*ec(3,:)+u*ec(4,:)
 	end function selTetraPoint
 
+	function selTriPoint(fcVerts) result(pt)
+		real(8) :: r1,r2,a,b,c,pt(3)
+		real(8),intent(in) :: fcVerts(3,3)
+
+		call random_number(r1)
+		call random_number(r2)
+		a = 1.0d0-sqrt(1-r1)
+    	b = (1.0d0-a)*r2
+		c = 1-a-b
+		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
+	end function selTriPoint
+
 	function getRaySphDir() result(dir)
 		real(8) :: r1,r2,th,ph,dir(3)
 
@@ -118,17 +132,26 @@ module commonRoutines
 		dir(3) = cos(th)
 	end function getRaySphDir
 
-	function selTriPoint(fcVerts) result(pt)
-		real(8) :: r1,r2,a,b,c,pt(3)
-		real(8),intent(in) :: fcVerts(3,3)
+	function getFaceRayDir(fcVerts,fcNorm) result(dir)
+		real(8),intent(in) :: fcVerts(3),fcNorm(3)
+		real(8):: th,ph,dir(3)
 
-		call random_number(r1)
-		call random_number(r2)
-		a = 1.0d0-sqrt(1-r1)
-    	b = (1.0d0-a)*r2
-		c = 1-a-b
-		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
-	end function selTriPoint
+		call random_number(th)
+		th = asin(sqrt(th))
+		call random_number(ph)
+    	ph = 2.0_dp*pi*ph
+		dir(1) = sin(th)*cos(ph)
+		dir(2) = sin(th)*sin(ph)
+		dir(3) = cos(th)
+
+		if(dot_product(fcNorm,dir) .lt. 0) then
+			th = pi-th
+			dir(1) = sin(th)*cos(ph)
+			dir(2) = sin(th)*sin(ph)
+			dir(3) = cos(th)
+		end if
+
+	end function getFaceRayDir
 
 	function getFaceNorm(fcVerts,remVert,inward) result(fcNorm)
 		integer :: i
@@ -197,6 +220,28 @@ module commonRoutines
 			stop
 		end if
 	end function getFaceNodes
+
+    function insideFaceCheck(fcVerts,pt) result(ptInside)
+        real(8),intent(in) :: pt(3),fcVerts(3,3)
+        logical:: ptInside
+        real(8) :: dpna,na(3),nx(3),ny(3),nz(3),bc(3)
+        
+        na = cross_product_3(fcVerts(2,:)-fcVerts(1,:),					&
+		fcVerts(3,:)-fcVerts(1,:))
+        nx = cross_product_3(fcVerts(3,:)-fcVerts(2,:),pt-fcVerts(2,:))
+        ny = cross_product_3(fcVerts(1,:)-fcVerts(3,:),pt-fcVerts(3,:))
+        nz = cross_product_3(fcVerts(2,:)-fcVerts(1,:),pt-fcVerts(1,:))
+        dpna = dot_product(na,na)
+        bc(1) = dot_product(na,nx)/dpna
+        bc(2) = dot_product(na,ny)/dpna
+        bc(3) = dot_product(na,nz)/dpna
+        ptInside = (all(bc.gt. 0.0d0).and.(abs(sum(bc)-1.0d0).le.PICO))
+        if (.not.(ptInside)) then
+			write(*,*)"Point found not lying on face. Values: "
+	        write(*,'(3(f15.12,2x))') bc
+	        write(*,*) abs(sum(bc)-1.0d0)
+        end if
+    end function insideFaceCheck
 
 	function triangleArea(trVerts) result(trArea)
 		real(8) :: trArea,v(3),w(3),aVec(3)
