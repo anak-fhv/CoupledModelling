@@ -35,7 +35,7 @@ module mesh
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
 !	Inputs
-	integer :: nBins(3) = (/2,2,2/)
+	integer :: meshNBins(3) = (/2,2,2/)
 	character(72) :: meshFile = "a"
 
 	contains
@@ -141,7 +141,7 @@ module mesh
 	        allocate(meshSurfs(meshNumSurfs))
 		end if
 		do i=1,meshNumSurfs
-			meshSurfs%sfId = i
+			meshSurfs(i)%sfId = i
             read(fNum,'(i8,1x,a)') numSfFaces,surfName
 			meshSurfs(i)%numFcs = numSfFaces
 			meshSurfs(i)%sfName = surfName
@@ -197,7 +197,7 @@ module mesh
 		character(72) :: fDat
 		type(elementBin),allocatable :: elBins(:,:,:)
 
-		fDat = commDatDir//trim(adjustl(meshFile))//commMeshExt
+		fDat = commDatDir//trim(adjustl(meshFile))//commDatExt
 		inquire(file=trim(adjustl(fDat)),exist=datFileExist)
 		if(datFileExist) then
 			do i=1,meshNumElems
@@ -209,9 +209,9 @@ module mesh
 			return
 		end if
 		call binElements(elBins)
-		do k=1,nBins(3)
-			do j=1,nBins(2)
-				do i=1,nBins(1)
+		do k=1,meshNBins(3)
+			do j=1,meshNBins(2)
+				do i=1,meshNBins(1)
 					call findNeighboursWithinBin(elBins(i,j,k))
 					call findNeighboursAcrossBins(i,j,k,elBins)
 				end do
@@ -225,7 +225,7 @@ module mesh
 		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
 		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)
 
-		allocate(elBins(nBins(1),nBins(2),nBins(3)))
+		allocate(elBins(meshNBins(1),meshNBins(2),meshNBins(3)))
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
@@ -234,7 +234,7 @@ module mesh
 			elVerts = meshVerts(elNodes,:)
 			elCent = sum(elVerts,1)/4.0d0
 			meshElems(i)%centroid = elCent
-			cRs = ceiling(((elCent-dmin)/edges)*nBins)
+			cRs = ceiling(((elCent-dmin)/edges)*meshNBins)
 			where(cRs == 0)
 				cRs = 1
 			end where
@@ -297,11 +297,11 @@ module mesh
 			if(ct1 == 4) cycle
 			elNo1 = meshElems(el1)%nodes
 			zBinIndex: do k=c3-1,c3+1
-				if((k.eq.0).or.(k.gt.nBins(3))) cycle
+				if((k==0).or.(k.gt.meshNBins(3))) cycle
 				yBinIndex: do j=c2-1,c2+1
-					if((j.eq.0).or.(j.gt.nBins(2))) cycle
+					if((j==0).or.(j.gt.meshNBins(2))) cycle
 					xBinIndex: do i=c1-1,c1+1
-						if((i.eq.0).or.(i.gt.nBins(1))) cycle
+						if((i==0).or.(i.gt.meshNBins(1))) cycle
 						if(all((/i,j,k/)==(/c1,c2,c3/))) cycle
 						adjBin = elBins(i,j,k)
 						binSz2 = size(adjBin%bin,1)
@@ -487,12 +487,12 @@ module mesh
 			stop
 		end if
 
-		if(propNameFlag .eq. "T") then
+		if(propNameFlag == "T") then
 			if(.not.(allocated(meshTemperatures))) then
 				allocate(meshTemperatures(meshNumNodes))
 			end if
 			meshTemperatures = nodalVals
-		elseif(propNameFlag .eq. "F") then
+		elseif(propNameFlag == "F") then
 			if(.not.(allocated(meshForces))) then
 				allocate(meshForces(meshNumNodes))
 			end if
@@ -522,6 +522,29 @@ module mesh
 		meshStCols = stCols
 		meshStRowPtr = stRowPtr
 	end subroutine saveMeshNodalStiffness
+
+	subroutine setSurfaceConstTemperature(surfId,constT)
+		integer :: i,j,el,fc,numFcs,fcNodes(3),elNodes(4)
+		integer,intent(in) :: surfId
+		real(8),intent(in) :: constT
+
+		if(.not.(allocated(meshTemperatures))) then
+			allocate(meshTemperatures(meshNumNodes))
+		end if
+		do i=1,meshNumSurfs
+			if(meshSurfs(i)%sfId == surfId) then
+				numFcs = meshSurfs(i)%numFcs
+				do j=1,numFcs
+					el = meshSurfs(i)%elNum(j)
+					fc = meshSurfs(i)%fcNum(j)
+					elNodes = meshElems(el)%nodes
+					fcNodes = getFaceNodes(fc)
+					meshTemperatures(elNodes(fcNodes)) = constT
+				end do
+				exit
+			end if
+		end do
+	end subroutine setSurfaceConstTemperature
 
 !-----------------------------------------------------------------------!
 !	End of the setter subroutines

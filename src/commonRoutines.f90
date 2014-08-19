@@ -6,7 +6,7 @@ module commonRoutines
 	LARGE=1.0d3,MEGA=1.0d6,GIGA=1.0d9,SMALL=1.0d-3,MICRO=1.0d-6,		&
 	NANO=1.0d-9,PICO=1.0d-12
 	character(*),parameter :: commDatDir="../data/",					&
-	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
+	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat"
 
 	contains
 
@@ -139,7 +139,7 @@ module commonRoutines
 		call random_number(th)
 		th = asin(sqrt(th))
 		call random_number(ph)
-    	ph = 2.0_dp*pi*ph
+    	ph = 2.0d0*pi*ph
 		dir(1) = sin(th)*cos(ph)
 		dir(2) = sin(th)*sin(ph)
 		dir(3) = cos(th)

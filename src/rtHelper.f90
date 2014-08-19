@@ -14,26 +14,59 @@ module rtHelper
 
 !	Module variables
 	integer :: rtNumRays
-	integer,allocatable :: 
-	real(8) :: kappa,sigma
-	real(8),allocatable ::
+	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
+	rtWallInf(:)
+	real(8) :: rtKappa,rtSigma
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
-!	Inputs
-	character(*),parameter ::
 
 	contains
 
-	subroutine traceFromSurf(pRatio,elemAbsNums)
+	subroutine rtInitMesh(mFileName,mBinNum,mConstTSfIds,mSfConstTs)
+		integer :: i
+		integer,intent(in) :: mBinNum(3),mConstTSfIds(:)
+		real(8),intent(in) :: mSfConstTs(:)
+		character(*),intent(in) :: mFileName
+
+		meshFile = trim(adjustl(mFileName))
+		meshNBins = mBinNum
+		call readMesh()
+		call getElementNeighbours()
+		call populateSurfaceFaceAreas()
+		do i=1,size(rtEmSfIds,1)
+			call setSurfaceConstTemperature(rtEmSfIds(i),			&
+			mSfConstTs(i))
+		end do
+		if(.not.(allocated(rtElemAbs))) then
+			allocate(rtElemAbs(meshNumElems))
+		end if
+		if(.not.(allocated(rtElemSto))) then
+			allocate(rtElemSto(meshNumElems))
+		end if
+		if(.not.(allocated(rtWallInf))) then
+			allocate(rtWallInf(meshNumElems))
+		end if
+		rtElemAbs = 0
+		rtElemSto = 0
+		rtWallInf = 0
+		call createEmissionSurfaces()
+	end subroutine rtInitMesh
+
+	subroutine traceFromSurf(pRatio)
 		integer,parameter :: limoutpt=5
+		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
 		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt
-		integer,intent(inout) :: elemAbsNums(:)
 		real(8) :: pL,pt(3),dir(3),endPt(3)
 		real(8),intent(in) :: pRatio(:)
 		logical :: outPt
+		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
+								  sfAbPtsFil=commResDir//"surfpts.out"
 
+		open(nSfAbPtsFil,file=sfAbPtsFil)
+		open(nSfEmPtsFil,file=sfEmPtsFil)
 		outPtCt = 0
-		do i=1,nRays
+		do i=1,rtNumRays
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
+			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
 			cEl = emEl
 			call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 			if(outPt) then
@@ -44,26 +77,33 @@ module rtHelper
 				end if
 			end if
 			if(endEl .ne. 0) then
-				elemAbsNums(endEl) = elemAbsNums(endEl) + 1
+				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+				write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
 			end if
-
 		end do
+		close(nSfEmPtsFil)
+		close(nSfAbPtsFil)
 	end subroutine traceFromSurf
 
-	subroutine traceFromVol(elemStoNums,elemAbsNums)
+	subroutine traceFromVol()
 		integer,parameter :: limoutpt=5
+		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
 		integer :: i,j,k,cEl,elNr,endEl,outPtCt
-		integer,intent(in) :: elemStoNums(:)
-		integer,intent(inout) :: elemAbsNums(:)
+		integer,allocatable :: emSfIds(:)
 		real(8) :: pL,pt(3),dir(3),endPt(3)
 		logical :: outPt
+		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
+								  vlAbPtsFil=commResDir//"volpts.out"
 
+		open(nVlEmPtsFil,file=vlEmPtsFil)
+		open(nVlAbPtsFil,file=vlAbPtsFil)
 		outPtCt = 0
 		do i=1,meshNumElems
-			elNr = elemStoNums(i)
+			elNr = rtElemSto(i)
 			if(elNr .ne. 0) then
 				do j=1,elNr
 					call startRayInVolume(i,pL,pt,dir)
+					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
 					cEl = i
 					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 					if(outPt) then
@@ -75,24 +115,28 @@ module rtHelper
 						end if
 					end if
 					if(endEl .ne. 0) then
-						elemAbsNums(endEl) = elemAbsNums(endEl) + 1
+						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
 					end if
 				end do
 			end if
 		end do
+		close(nVlAbPtsFil)
+		close(nVlEmPtsFil)
 	end subroutine traceFromVol
 
 	subroutine traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
-		integer :: i,rayIterCt,chCt,cEl,newFc,nEmSfs,nhbrFc,elNodes(4)
-		integer,intent(in) :: cEl
+		integer :: i,rayIterCt,chCt,newFc,nEmSfs,nhbrFc,elNodes(4)
+		integer,intent(inout) :: cEl
 		integer,intent(out) :: endEl
+		integer,allocatable :: emSfIds(:)
 		real(8) :: lTrav,lToFc,newDir(3),ec(4,3)
-		real,intent(in) :: pL,pt(3),dir(3)
-		real,intent(out) :: endPt(3)
+		real(8),intent(in) :: pL
+		real(8),intent(out) :: endPt(3)
+		real(8),intent(inout) :: pt(3),dir(3)
 		logical :: inFc
 		logical,intent(out) :: outPt
 
-		nEmSfs = size(rtEmSurfs,1)
 		rayIterCt = 0
 		endEl = 0
 		endPt = 0.0d0
@@ -100,9 +144,9 @@ module rtHelper
 		outPt = .false.
 		do while(lTrav.lt.pL)
 			elNodes = meshElems(cEl)%nodes
-			ec = vertices(elNodes,:)
+			ec = meshVerts(elNodes,:)
 			pt = pt + PICO*dir
-			pL = pL-PICO
+			lTrav = lTrav+PICO
 			chCt = 0
 			if(rayIterCt .gt. MEGA) then
 				outPt = .true.
@@ -127,12 +171,12 @@ module rtHelper
 			end if
 			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
 			if(nhbrFc .lt. 0) then
-				chCt = count(-nhbrFc.eq.rtEmSurfs%emSurf%sfId)
-				if(chCt .eq. 0) then
-					call specRef(ec,newFc,dir,newDir)
+				chCt = count(-nhbrFc==rtEmSfIds)
+				if(chCt == 0) then
+					newDir = specularReflection(ec,newFc,dir)
 					dir = newDir
 				else
-					pL = 0.0d0
+					lTrav = MEGA
 					exit
 				end if
 			end if
@@ -183,6 +227,7 @@ module rtHelper
 	subroutine startRayInVolume(emEl,pL,pt,dir)
 		integer :: elNodes(4)
 		integer,intent(in) :: emEl
+		real(8) :: ec(4,3)
 		real(8),intent(out) :: pL,pt(3),dir(3)
 
 		elNodes = meshElems(emEl)%nodes
@@ -195,7 +240,7 @@ module rtHelper
 	subroutine startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 		integer :: remNo,fcNodes(3),elNodes(4)
 		integer,intent(out) :: emEl,emFc
-		real(8) :: remVert(3),fcNorm(3)ec(4,3),fcVerts(3,3)
+		real(8) :: remVert(3),fcNorm(3),ec(4,3),fcVerts(3,3)
 		real(8),intent(in) :: pRatio(:)
 		real(8),intent(out) :: pL,pt(3),dir(3)
 
@@ -256,20 +301,20 @@ module rtHelper
 	    end if
 	end subroutine getEmFace
 
-	subroutine createEmissionSurfaces(emSurfOriginalIds)
-		integer :: i,j,nEmSf,currSurf,nEmFcs,fcNodes(3),elNodes(4)
-		integer,intent(in) :: emSurfOriginalIds(:)
-		real(8) :: fcEmPow,fcArea,fcCentT,fcNoTs(3)
+	subroutine createEmissionSurfaces()
+		integer :: i,j,nEmSf,currSurf,nEmFcs,elNum,fcNum,fcNodes(3),	&
+		elNodes(4)
+		real(8) :: fcEmPow,fcArea,fcCentT,emSfPow,fcNoTs(3)
 
-		nEmSf = size(emSurfOriginalIds)
+		nEmSf = size(rtEmSfIds,1)
 		if(.not.(allocated(rtEmSurfs))) then
 			allocate(rtEmSurfs(nEmSf))
 		end if
 		do i=1,nEmSf
-			currSurf = emSurfOriginalIds(i)
+			currSurf = rtEmSfIds(i)
 			rtEmSurfs(i)%emSurf = meshSurfs(currSurf)
 			nEmFcs = meshSurfs(currSurf)%numFcs
-			if(.not.(allocated(rtEmSurfs(i)%fcEmPower))) then
+			if(.not.(allocated(rtEmSurfs(i)%cuSumFcEmPow))) then
 				allocate(rtEmSurfs(i)%cuSumFcEmPow(nEmFcs))
 			end if
 			emSfPow = 0.d0
@@ -281,21 +326,20 @@ module rtHelper
 				fcNodes = getFaceNodes(fcNum)
 				fcNoTs = meshTemperatures(elNodes(fcNodes))
 				fcCentT = sum(fcNoTs)/3.0d0
-				fcEmPow = kappa*sigB*fcrArea*(fcCentT**4.0d0)
+				fcEmPow = sigB*fcArea*(fcCentT**4.0d0)
 				emSfPow = emSfPow+fcEmPow
 				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfPow
 			end do
 			rtEmSurfs(i)%totEmPow = emSfPow
 			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
 		end do
-	end subroutine createEmissionSurface
+	end subroutine createEmissionSurfaces
 
 	function specularReflection(ec,fcNum,dirIn) result(dirOut)
 		integer :: remNo,fcNodes(3)
 		integer,intent(in) :: fcNum
-		real(8) :: cosInc,fcVerts(3,3),remVert(3),fcNorm(3)
+		real(8) :: cosInc,fcVerts(3,3),remVert(3),fcNorm(3),dirOut(3)
 		real(8),intent(in) :: ec(4,3),dirIn(3)
-		real(8),intent(out) :: dirOut
 
 		fcNodes = getFaceNodes(fcNum)
 		remNo = 10-sum(fcNodes)
@@ -315,17 +359,17 @@ module rtHelper
 		real(8) :: randL,pathLength
 
 		call random_number(randL)
-		pathLength = (1.0d0/(kappa+sigma))*log(1.0d0/randL)
+		pathLength = (1.0d0/(rtKappa+rtSigma))*log(1.0d0/randL)
 	end function getRayPathLength
 
 	subroutine setMediumValues(valIn,valNameFlag)
 		real(8),intent(in) :: valIn
 		character(*),intent(in) :: valNameFlag
 
-		if(valNameFlag .eq. "k") then
-			kappa = valIn
-		elseif(valNameFlag .eq. "s") then
-			sigma = valIn
+		if(valNameFlag == "k") then
+			rtKappa = valIn
+		elseif(valNameFlag == "s") then
+			rtSigma = valIn
 		else
 			write(*,'(a)') "Property to be set not recognised."
 			stop
