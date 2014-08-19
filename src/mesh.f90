@@ -191,9 +191,23 @@ module mesh
 !-----------------------------------------------------------------------!
 
 	subroutine getElementNeighbours()
-		integer :: i,j,k
+		integer,parameter :: datFileNum=101
+		integer :: i,j,k,temp(8)
+		logical :: datFileExist
+		character(72) :: fDat
 		type(elementBin),allocatable :: elBins(:,:,:)
 
+		fDat = commDatDir//trim(adjustl(meshFile))//commMeshExt
+		inquire(file=trim(adjustl(fDat)),exist=datFileExist)
+		if(datFileExist) then
+			do i=1,meshNumElems
+				read(datFileNum,'(1x,4(i8,1x,i4))') temp
+				do j=1,4
+					meshElems(i)%neighbours(j,:) = temp(2*j-1:2*j)
+				end do
+			end do
+			return
+		end if
 		call binElements(elBins)
 		do k=1,nBins(3)
 			do j=1,nBins(2)

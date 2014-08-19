@@ -286,6 +286,7 @@ module rtHelper
 				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfPow
 			end do
 			rtEmSurfs(i)%totEmPow = emSfPow
+			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
 		end do
 	end subroutine createEmissionSurface
 
@@ -316,5 +317,19 @@ module rtHelper
 		call random_number(randL)
 		pathLength = (1.0d0/(kappa+sigma))*log(1.0d0/randL)
 	end function getRayPathLength
+
+	subroutine setMediumValues(valIn,valNameFlag)
+		real(8),intent(in) :: valIn
+		character(*),intent(in) :: valNameFlag
+
+		if(valNameFlag .eq. "k") then
+			kappa = valIn
+		elseif(valNameFlag .eq. "s") then
+			sigma = valIn
+		else
+			write(*,'(a)') "Property to be set not recognised."
+			stop
+		end if
+	end subroutine setMediumValues
 
 end module rtHelper
