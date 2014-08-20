@@ -6,7 +6,8 @@ module commonRoutines
 	LARGE=1.0d3,MEGA=1.0d6,GIGA=1.0d9,SMALL=1.0d-3,MICRO=1.0d-6,		&
 	NANO=1.0d-9,PICO=1.0d-12
 	character(*),parameter :: commDatDir="../data/",					&
-	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat"
+	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
+	commOutExt=".out"
 
 	contains
 
