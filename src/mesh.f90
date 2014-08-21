@@ -29,9 +29,9 @@ module mesh
 
 !	Module variables
 	integer :: meshNumNodes,meshNumElems,meshNumDoms,meshNumSurfs
-	integer,allocatable :: meshStCols(:),meshStRowPtr(:)
-	real(8),allocatable :: meshTemperatures(:),meshForces(:),			&
-	meshVerts(:,:),meshSt(:)
+	integer,allocatable :: meshStColPtr(:),meshStRowPtr(:)
+	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
+	meshVerts(:,:),meshStVals(:)
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
 !	Inputs
@@ -447,17 +447,6 @@ module mesh
 	end function getElementVolume
 
 
-	function getElementUnitStiffness(elNum) result(elemUnitSt)
-		integer,intent(in) :: elNum
-		real(8) :: ev,b(3,4),bt(4,3),spFns(4,4),elemUnitSt(4,4)
-
-		spFns = getElementShapeFunctions(elNum)
-		ev = getElementVolume(elNum)
-		bt = spFns(:,2:4)
-		b = transpose(bt)
-		elemUnitSt = (matmul(bt,b))*ev
-	end function getElementUnitStiffness
-
 	function getElementCentroid(elNum) result(centroid)
 		integer :: elNodes(4)
 		integer,intent(in) :: elNum
@@ -467,6 +456,19 @@ module mesh
 		ec = meshVerts(elNodes,:)
 		centroid = sum(ec,1)/4.d0
 	end function getElementCentroid
+
+	subroutine getElementUnitStiffness(elNum,elK,elemVol,elemUnitSt)
+		integer,intent(in) :: elNum
+		real,intent(in) :: elK(3,3)
+		real(8) :: ev,b(3,4),bt(4,3),spFns(4,4),
+		real(8),intent(out) :: elemVol,elemUnitSt(4,4)
+
+		spFns = getElementShapeFunctions(elNum)
+		elemVol = getElementVolume(elNum)
+		bt = spFns(:,2:4)
+		b = transpose(bt)
+		elemUnitSt = matmul(matmul(bt,k),b)*elemVol
+	end subroutine getElementUnitStiffness
 
 !-----------------------------------------------------------------------!
 !	End of the element level functions for the mesh
@@ -492,11 +494,11 @@ module mesh
 				allocate(meshTemperatures(meshNumNodes))
 			end if
 			meshTemperatures = nodalVals
-		elseif(propNameFlag == "F") then
-			if(.not.(allocated(meshForces))) then
-				allocate(meshForces(meshNumNodes))
+		elseif(propNameFlag == "S") then
+			if(.not.(allocated(meshSources))) then
+				allocate(meshSources(meshNumNodes))
 			end if
-			meshForces = nodalVals
+			meshSources = nodalVals
 		else
 			write(*,'(a)') "Property to be set not recognised."
 			stop
@@ -504,22 +506,22 @@ module mesh
 
 	end subroutine setMeshNodalValues
 
-	subroutine saveMeshNodalStiffness(noSt,stCols,stRowPtr)
-		integer,intent(in) :: stCols(:),stRowPtr(:)
-		real(8),intent(in) :: noSt(:)
+	subroutine saveMeshNodalStiffness(sySt,stColPtr,stRowPtr)
+		integer,intent(in) :: stColPtr(:),stRowPtr(:)
+		real(8),intent(in) :: sySt(:)
 
-		if(.not.(allocated(meshSt))) then
-			allocate(meshSt(size(noSt,1)))
+		if(.not.(allocated(meshStVals))) then
+			allocate(meshStVals(size(noSt,1)))
 		end if
-		if(.not.(allocated(meshStCols))) then
-			allocate(meshStCols(size(stCols,1)))
+		if(.not.(allocated(meshStColPtr))) then
+			allocate(meshStColPtr(size(stColPtr,1)))
 		end if
 		if(.not.(allocated(meshStRowPtr))) then
 			allocate(meshStRowPtr(size(stRowPtr,1)))
 		end if
 
-		meshSt = noSt
-		meshStCols = stCols
+		meshStVals = noSt
+		meshStColPtr = stColPtr
 		meshStRowPtr = stRowPtr
 	end subroutine saveMeshNodalStiffness
 
