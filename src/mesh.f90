@@ -3,9 +3,10 @@
 module mesh
 
 	use commonRoutines, only: commDatDir,commResDir,commMeshExt,		&
-							  commDatExt,indexedSort,checkIoError,		&
-							  getFaceIndex,getFaceNodes,invertReal4by4,	&
-							  determinantReal4by4,triangleArea
+							  commDatExt,indexedSortInteger,			&
+							  checkIoError,getFaceIndex,getFaceNodes,	&
+							  invertReal4by4,determinantReal4by4,		&
+							  triangleArea
 
 	implicit none
 
@@ -459,15 +460,15 @@ module mesh
 
 	subroutine getElementUnitStiffness(elNum,elK,elemVol,elemUnitSt)
 		integer,intent(in) :: elNum
-		real,intent(in) :: elK(3,3)
-		real(8) :: ev,b(3,4),bt(4,3),spFns(4,4),
+		real(8),intent(in) :: elK
+		real(8) :: ev,b(3,4),bt(4,3),spFns(4,4)
 		real(8),intent(out) :: elemVol,elemUnitSt(4,4)
 
 		spFns = getElementShapeFunctions(elNum)
 		elemVol = getElementVolume(elNum)
 		bt = spFns(:,2:4)
 		b = transpose(bt)
-		elemUnitSt = matmul(matmul(bt,k),b)*elemVol
+		elemUnitSt = elK*matmul(bt,b)*elemVol
 	end subroutine getElementUnitStiffness
 
 !-----------------------------------------------------------------------!
@@ -511,7 +512,7 @@ module mesh
 		real(8),intent(in) :: sySt(:)
 
 		if(.not.(allocated(meshStVals))) then
-			allocate(meshStVals(size(noSt,1)))
+			allocate(meshStVals(size(sySt,1)))
 		end if
 		if(.not.(allocated(meshStColPtr))) then
 			allocate(meshStColPtr(size(stColPtr,1)))
@@ -520,7 +521,7 @@ module mesh
 			allocate(meshStRowPtr(size(stRowPtr,1)))
 		end if
 
-		meshStVals = noSt
+		meshStVals = sySt
 		meshStColPtr = stColPtr
 		meshStRowPtr = stRowPtr
 	end subroutine saveMeshNodalStiffness

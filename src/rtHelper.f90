@@ -1,13 +1,7 @@
 module rtHelper
 
-	use commonRoutines, only: pi,sigb,LARGE,MEGA,PICO,commResDir,		&
-						commOutExt,selTetraPoint,selTriPoint,			&
-						getRaySphDir,getFaceRayDir,getFaceNorm,			&
-						getFaceNodes,insideFaceCheck
-	use mesh, only: meshFile,meshNBins,meshNumNodes,meshNumElems,		&
-			  meshNumDoms,meshNumSurfs,meshElems,meshVerts,meshSurfs,	&
-			  meshTemperatures,readMesh,getElementNeighbours,			&
-			  populateSurfaceFaceAreas,setSurfaceConstTemperature
+	use commonRoutines
+	use mesh
 
 	implicit none
 

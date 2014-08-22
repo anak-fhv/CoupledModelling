@@ -7,7 +7,7 @@ module commonRoutines
 	NANO=1.0d-9,PICO=1.0d-12
 	character(*),parameter :: commDatDir="../data/",					&
 	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
-	commOutExt=".out"
+	commOutExt=".out",commVTKExt=".vtk"
 
 	contains
 
@@ -253,6 +253,25 @@ module commonRoutines
 		aVec = cross_product_3(v,w)
 		trArea = 0.5d0*norm2(aVec)
 	end function triangleArea
+
+	function areaIntShapeFuncs(fcNodes) result(surfint)
+		integer :: i,j,n1,n2
+		integer,intent(in) :: fcNodes(3)
+		real(8) :: surfint(4,4)
+
+		surfint = 0.0d0
+		do i=1,3
+			n1 = fcnodes(i)
+			do j=1,3
+				n2 = fcnodes(j)
+				if(n1==n2) then
+					surfint(n1,n2) = 2.0d0
+				else
+					surfint(n1,n2) = 1.0d0
+				end if
+			end do
+		end do
+	end function areaIntShapeFuncs
 
 	function cross_product_3(v,w) result(cP)
 		real(8) :: cP(3)
