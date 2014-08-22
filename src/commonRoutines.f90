@@ -53,7 +53,7 @@ module commonRoutines
 !	general routines.
 !-----------------------------------------------------------------------!
 
-	subroutine indexedSort(a,b)
+	subroutine indexedSortInteger(a,b)
 		integer,intent(inout) :: a(:)
 		integer,intent(out) :: b(size(a,1))
 		integer :: i,j,n,temp
@@ -72,7 +72,7 @@ module commonRoutines
 				end if
 			end do
 		end do
-	end subroutine indexedsort
+	end subroutine indexedSortInteger
 
 	subroutine invertReal4by4(vm)
 		integer,parameter :: m=4,n=4,lda=4,lwork=256
@@ -189,7 +189,7 @@ module commonRoutines
 		integer :: fcNum,indices(3)
 		integer,intent(inout) :: fcNodes(3)
 
-		call indexedSort(fcNodes,indices)
+		call indexedSortInteger(fcNodes,indices)
 		if(all(fcNodes == (/1,2,3/))) then
 			fcNum = 1
 		elseif(all(fcNodes == (/1,2,4/))) then
