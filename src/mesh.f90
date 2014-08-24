@@ -167,7 +167,7 @@ module mesh
 						meshSurfs(i)%fcNum(ct) = fcNum
 						if(l) then
 							meshElems(elNum)%neighbours(fcNum,:) = 		&
-							(/elNum,-i/)
+							(/elNum,-meshSurfs(i)%sfId/)
 						end if
                     end if
                 end do
@@ -551,6 +551,24 @@ module mesh
 
 !-----------------------------------------------------------------------!
 !	End of the setter subroutines
+!-----------------------------------------------------------------------!
+
+!-----------------------------------------------------------------------!
+!	Subroutines to write elements of data processed previously.
+!-----------------------------------------------------------------------!
+	subroutine writeElementNeighbourhoodData()
+		integer,parameter :: datFileNum=101
+		character(72) :: datFile,wrtFmt
+
+		datFile = commDatDir//trim(adjustl(meshFile))//commDatExt
+		wrtFmt = '(1x,4(i8,1x,i4))'
+		open(datFileNum,file=datFile)
+		do i=1,meshNumElems
+			write(datFileNum,wrtFmt) transpose(meshElems(i)%neighbours)
+		end do
+	end subroutine writeElementNeighbourhoodData
+!-----------------------------------------------------------------------!
+!	End of the writer subroutines
 !-----------------------------------------------------------------------!
 
 end module mesh
