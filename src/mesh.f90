@@ -38,6 +38,7 @@ module mesh
 !	Inputs
 	integer :: meshNBins(3) = (/2,2,2/)
 	character(72) :: meshFile = "a"
+	character(*),parameter :: meshNHFile = "_nHood"
 
 	contains
 
@@ -147,7 +148,7 @@ module mesh
 			meshSurfs(i)%numFcs = numSfFaces
 			meshSurfs(i)%sfName = surfName
 			l = (verify('iface',surfName) .ne. 0)
-			l = l .and. (verify('bic',surfName) .ne. 0)
+!			l = l .and. (verify('bic',surfName) .ne. 0)
 			allocate(meshSurfs(i)%elNum(numSfFaces))
 			allocate(meshSurfs(i)%fcNum(numSfFaces))
 			if(mod(numSfFaces,5) == 0) then
@@ -558,9 +559,11 @@ module mesh
 !-----------------------------------------------------------------------!
 	subroutine writeElementNeighbourhoodData()
 		integer,parameter :: datFileNum=101
+		integer :: i
 		character(72) :: datFile,wrtFmt
 
-		datFile = commDatDir//trim(adjustl(meshFile))//commDatExt
+		datFile = trim(adjustl(meshFile))//meshNHFile
+		datFile = commDatDir//trim(adjustl(datFile))//commDatExt
 		wrtFmt = '(1x,4(i8,1x,i4))'
 		open(datFileNum,file=datFile)
 		do i=1,meshNumElems

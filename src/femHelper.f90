@@ -48,6 +48,7 @@ module femHelper
 			femSysAssembled = .true.
 			call solveFemSystem()
 			call writeVtkResults()
+			call writeElementNeighbourhoodData()
 		end if
 	end subroutine runFem
 
@@ -70,18 +71,22 @@ module femHelper
 		if(femTransient) then
 			allocate(femCp(meshNumNodes))
 		end if
+		open(121,file="../obj/bVals.out")
 		do i=1,meshNumElems
 			elNodes = meshElems(i)%nodes
 			elDom = meshElems(i)%domain
 			elK = femKs(elDom)
 			call getElementUnitStiffness(i,elK,elVol,elSt)
-			elBys = meshElems(i)%neighbours(:,2)
-			if(any(elBys<0)) then
+!			elBys = meshElems(i)%neighbours(:,2)
+!			if(any(elBys<0)) then
 				call boundaryConditions(i,elBys,elBySt,elByTs,elBySrc)
 				elSt = elSt + elBySt
-				femSrc(elNodes) = elBySrc
-				femTvals(elNodes) = elByTs
-			end if
+				call addToGlobalTemperature(elNodes,elByTs)
+				call addToGlobalSource(elNodes,elBySrc)
+!				femSrc(elNodes) = elBySrc
+!				femTvals(elNodes) = elByTs
+!			end if
+			
 			stElem = femSt(elNodes)
 			call assembleNoderows(elNodes,elSt,stElem)
 			femSt(elNodes) = stElem
@@ -94,7 +99,7 @@ module femHelper
 				femCp(elNodes) = cpElem
 			end if
 		end do
-
+		close(121)
 		if(femTransient) then
 			call collapseNodeRows("st")
 			deallocate(femSt)
@@ -105,6 +110,18 @@ module femHelper
 
 		call setupFinalEquations()
 		call collapseNodeRows("st")
+		open(111,file="../obj/tempSrc.out")
+		write(111,'(a)')"femStRowPtr:"
+		write(111,'(i8)')femStRowPtr
+		write(111,*)
+		write(111,'(a)')"femStColPtr:"
+		write(111,'(i8)')femStColPtr
+		write(111,*)
+		write(111,'(a)')"femStVals:"
+		write(111,'(f9.5)')femStVals
+		write(111,'(a)')"femTemperatures:"
+		write(111,'(f9.5)')femTvals
+		close(111)
 		deallocate(femSt)
 	end subroutine assembleFemSystem
 
@@ -161,27 +178,32 @@ module femHelper
         read(byFilNum,*) femBVals
         read(byFilNum,*)
         read(byFilNum,*) femAmbT
+		close(byFilNum)
     end subroutine getBoundaryConditions
 
 	subroutine boundaryConditions(elNum,elBys,elBySt,elByTs,elBySrc)
 		integer :: i,j,bSfId,bSfType,fcNodes(3),boSfs(4),elNodes(4) 
 		integer,intent(in) :: elNum,elBys(4)
 		real(8) :: bSfVal,ec(4,3),elQ(4),htA(4)
-		real(8),intent(out) :: elByTs(4),elBySrc(4),elBySt(4,4)
+		real(8) :: elByTs(4),elBySrc(4),elBySt(4,4)
 
 		boSfs = meshElems(elNum)%neighbours(:,2)
 		elNodes = meshElems(elNum)%nodes
 		ec = meshVerts(elNodes,:)
-		elByTs(4) = 0
-		elBySrc(4)= 0.0d0
-		elBySt(4,4) = 0.0d0
+		elByTs = 0.d0
+		elBySrc = 0.d0
+		elBySt = 0.d0
+		elQ = 0.d0
+		htA = 0.d0
 		do i=1,4
 			if(boSfs(i) < 0) then
 				bSfId = -boSfs(i)
 				bSfType = femBCs(bSfId)
 				bSfVal = femBVals(bSfId)
 				fcNodes = getFaceNodes(i)
-				if(bSfVal.ne.0.0d0) then
+				if(abs(bSfVal).ge.PICO) then
+					write(121,*) elNum
+					write(121,*) bSfId,bSfType,bSfVal
 					if(bSfType == 1) then
 						elByTs(fcNodes) = bSfVal
 					elseif(bSfType == 2) then
@@ -229,6 +251,25 @@ module femHelper
 		spFnAreaInt = areaIntShapeFuncs(fcnodes)
 		elBySt = (2.0d0*fcArea/24.0d0)*bSfVal*spFnAreaInt
 	end subroutine getConvectiveSource
+
+	subroutine addToGlobalTemperature(elNodes,elByTs)
+		integer,intent(in) :: elNodes(4)
+		real(8),intent(in) :: elByTs(4)
+
+		if(any(abs(elByTs).ge.PICO)) then
+			femTvals(elNodes) = elByTs
+		end if
+	end subroutine addToGlobalTemperature
+
+	subroutine addToGlobalSource(elNodes,elBySrc)
+		integer :: i
+		integer,intent(in) :: elNodes(4)
+		real(8),intent(in) :: elBySrc(4)
+
+		do i=1,4
+			femSrc(elnodes(i)) = femSrc(elnodes(i))+elBySrc(i)
+		end do
+	end subroutine addToGlobalSource
 !-----------------------------------------------------------------------!
 !	End of boundary handling routines
 !-----------------------------------------------------------------------!
