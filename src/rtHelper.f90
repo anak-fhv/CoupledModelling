@@ -17,6 +17,7 @@ module rtHelper
 	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
 	rtWallInf(:)
 	real(8) :: rtKappa,rtSigma
+	real(8),allocatable :: rtWallSrc(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
@@ -45,24 +46,29 @@ module rtHelper
 		if(.not.(allocated(rtWallInf))) then
 			allocate(rtWallInf(meshNumElems))
 		end if
+		if(.not.(allocated(rtWallSrc))) then
+			allocate(rtWallSrc(meshNumNodes))
+		end if
 		rtElemAbs = 0
 		rtElemSto = 0
 		rtWallInf = 0
 		call createEmissionSurfaces()
 	end subroutine rtInitMesh
 
-	subroutine traceFromSurf(pRatio)
+	subroutine traceFromSurf(pRatio,rayPow)
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
-		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt
-		real(8) :: pL,pt(3),dir(3),endPt(3)
-		real(8),intent(in) :: pRatio(:)
+		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
+		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8),intent(in) :: pRatio(:),rayPow
+		real(8),allocatable :: nodalSources(:)
 		logical :: outPt
 		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
 								  sfAbPtsFil=commResDir//"surfpts.out"
 
 		open(nSfAbPtsFil,file=sfAbPtsFil)
 		open(nSfEmPtsFil,file=sfEmPtsFil)
+		allocate(nodalSources(meshNumNodes))
 		outPtCt = 0
 		do i=1,rtNumRays
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
@@ -79,24 +85,36 @@ module rtHelper
 			if(endEl .ne. 0) then
 				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 				write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
+				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+				elNodes = meshElems(endEl)%nodes
+				nodalSources(elNodes) = nodalSources(elNodes) + 		&
+				rayPow*spFnVals
 			end if
 		end do
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
+		open(975,file="../obj/tempRadSrc.out")
+			write(975,'(f20.13)') nodalSources
+		close(975)
+		call setMeshNodalValues(nodalSources,"S")
+		rtWallSrc = nodalSources
 	end subroutine traceFromSurf
 
-	subroutine traceFromVol()
+	subroutine traceFromVol(rayPow)
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
-		integer :: i,j,k,cEl,elNr,endEl,outPtCt
+		integer :: i,j,k,cEl,elNr,endEl,outPtCt,elNodes(4)
 		integer,allocatable :: emSfIds(:)
-		real(8) :: pL,pt(3),dir(3),endPt(3)
+		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8),intent(in) :: rayPow
+		real(8),allocatable :: nodalSources(:)
 		logical :: outPt
 		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
 								  vlAbPtsFil=commResDir//"volpts.out"
 
 		open(nVlEmPtsFil,file=vlEmPtsFil)
 		open(nVlAbPtsFil,file=vlAbPtsFil)
+!		allocate(nodalSources(meshNumNodes))
 		outPtCt = 0
 		do i=1,meshNumElems
 			elNr = rtElemSto(i)
@@ -104,6 +122,10 @@ module rtHelper
 				do j=1,elNr
 					call startRayInVolume(i,pL,pt,dir)
 					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
+!					call shapeFunctionsAtPoint(i,pt,spFnVals)
+!					elNodes = meshElems(i)%nodes
+!					nodalSources(elNodes) = nodalSources(elNodes) - &
+!					rayPow*spFnVals
 					cEl = i
 					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 					if(outPt) then
@@ -117,13 +139,78 @@ module rtHelper
 					if(endEl .ne. 0) then
 						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
+!						call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+!						elNodes = meshElems(endEl)%nodes
+!						nodalSources(elNodes) = nodalSources(elNodes) + &
+!						rayPow*spFnVals
 					end if
 				end do
 			end if
 		end do
 		close(nVlAbPtsFil)
 		close(nVlEmPtsFil)
+		nodalSources = nodalSources + rtWallSrc
+		open(975,file="../obj/tempRadSrc.out")
+			write(975,'(f20.13)') nodalSources
+		close(975)
+		call setMeshNodalValues(nodalSources,"S")
 	end subroutine traceFromVol
+
+	subroutine tracePowerBased()
+		integer,parameter :: limoutpt=5
+		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
+		integer :: i,j,k,cEl,elNumRays,endEl,outPtCt,elNodes(4)
+		integer,allocatable :: emSfIds(:)
+		real(8) :: pL,elRayPow,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8),allocatable :: nodalSources(:)
+		logical :: outPt
+		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
+								  vlAbPtsFil=commResDir//"volpts.out"
+
+		open(nVlEmPtsFil,file=vlEmPtsFil)
+		open(nVlAbPtsFil,file=vlAbPtsFil)
+		allocate(nodalSources(meshNumNodes))
+		outPtCt = 0
+		do i=1,meshNumElems
+!			elNr = rtElemSto(i)
+			call getElementNumRays(i,elNumRays,elRayPow)
+!			if(elNr .ne. 0) then
+				do j=1,elNumRays
+					call startRayInVolume(i,pL,pt,dir)
+					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
+					call shapeFunctionsAtPoint(i,pt,spFnVals)
+					elNodes = meshElems(i)%nodes
+					nodalSources(elNodes) = nodalSources(elNodes) - &
+					elRayPow*spFnVals
+					cEl = i
+					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+					if(outPt) then
+						outPtCt = outPtCt + 1
+						if(outptct .ge. limoutpt) then
+							write(*,*)"Count of dropped points reached&
+							& limit."
+							stop
+						end if
+					end if
+					if(endEl .ne. 0) then
+						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
+						call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+						elNodes = meshElems(endEl)%nodes
+						nodalSources(elNodes) = nodalSources(elNodes) + &
+						elRayPow*spFnVals
+					end if
+				end do
+!			end if
+		end do
+		close(nVlAbPtsFil)
+		close(nVlEmPtsFil)
+		nodalSources = nodalSources + rtWallSrc
+		open(975,file="../obj/tempRadSrc.out")
+			write(975,'(f20.13)') nodalSources
+		close(975)
+		call setMeshNodalValues(nodalSources,"S")
+	end subroutine tracePowerBased
 
 	subroutine traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 		integer :: i,rayIterCt,chCt,newFc,nEmSfs,nhbrFc,elNodes(4)
@@ -375,5 +462,24 @@ module rtHelper
 			stop
 		end if
 	end subroutine setMediumValues
+
+	subroutine getElementNumRays(elNum,elNumRays,elRayPow)
+		integer :: elNodes(4)
+		integer,intent(in) :: elNum
+		integer,intent(out) :: elNumRays
+		real(8) :: elVol,elCentTemp,elEmPow,elNoTemps(4)
+		real(8),intent(out) :: elRayPow
+
+		elNodes = meshElems(elNum)%nodes
+		elNoTemps = meshTemperatures(elNodes)
+		elVol = getElementVolume(elNum)
+		elCentTemp = sum(elNoTemps)/4.0d0
+		elEmPow = 4.0d0*rtKappa*sigB*(elCentTemp**4.0d0)*elVol
+		elNumRays = nint(elEmPow/rtRayRefPow)
+		if(elNumRays .lt. rtElemMinRays) then
+			elNumRays = rtElemMinRays
+		end if
+		elRayPow = elEmPow/dble(elNumRays)
+	end subroutine getElementNumRays
 
 end module rtHelper

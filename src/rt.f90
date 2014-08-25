@@ -10,12 +10,15 @@ module rt
 		integer,parameter :: rtDatFileNum=102
 		integer :: i,mainCtr,rtIterNum,nConstTSfs,mBinNum(3)
 		integer,allocatable :: mConstTSfIds(:)
-		real(8) :: totEmPow
+		real(8) :: totEmPow,rayPow,emSurfArea
 		real(8),allocatable :: pRatio(:),mSfConstTs(:)
 		character(*),parameter :: rtProbDatFile='../data/probData.dat'
 		character(72) :: mFileName
 
-		rtIterNum = 32
+!	Some hard coded values still exist
+		rtIterNum = 16
+		emSurfArea = 4.0d0
+!	Need to rid ourselves of these pesky constants
 
 		open(rtDatFileNum,file=rtProbDatFile)
 		read(rtDatFileNum,*)
@@ -50,12 +53,14 @@ module rt
 				end do
 				pRatio(nConstTSfs) = 1.0d0
 				write(*,*) "pRatio: ", pRatio
-				call traceFromSurf(pRatio)
+				rayPow = sigB*totEmPow*emSurfArea/rtNumRays
+				write(*,*) "rayPow: ", rayPow
+				call traceFromSurf(pRatio,rayPow)
 				rtElemSto = rtElemAbs
 				rtWallInf = rtElemAbs
 				rtElemAbs = 0
 			else
-				call traceFromVol()
+				call traceFromVol(rayPow)
 				rtElemSto = rtElemAbs + rtWallInf
 				rtElemAbs = 0
 			end if

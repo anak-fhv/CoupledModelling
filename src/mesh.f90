@@ -38,7 +38,7 @@ module mesh
 !	Inputs
 	integer :: meshNBins(3) = (/2,2,2/)
 	character(72) :: meshFile = "a"
-	character(*),parameter :: meshNHFile = "_nHood"
+	character(*),parameter :: meshNHFileSuff = "_nHood"
 
 	contains
 
@@ -196,29 +196,34 @@ module mesh
 		integer,parameter :: datFileNum=101
 		integer :: i,j,k,temp(8)
 		logical :: datFileExist
-		character(72) :: fDat
+		character(72) :: datFile
 		type(elementBin),allocatable :: elBins(:,:,:)
 
-		fDat = commDatDir//trim(adjustl(meshFile))//commDatExt
-		inquire(file=trim(adjustl(fDat)),exist=datFileExist)
+		datFile = trim(adjustl(meshFile))//meshNHFileSuff
+		datFile = commDatDir//trim(adjustl(datFile))//commDatExt
+		inquire(file=trim(adjustl(datFile)),exist=datFileExist)
 		if(datFileExist) then
+			open(datFileNum,file=datFile)
 			do i=1,meshNumElems
 				read(datFileNum,'(1x,4(i8,1x,i4))') temp
 				do j=1,4
 					meshElems(i)%neighbours(j,:) = temp(2*j-1:2*j)
 				end do
 			end do
+			close(datFileNum)
 			return
-		end if
-		call binElements(elBins)
-		do k=1,meshNBins(3)
-			do j=1,meshNBins(2)
-				do i=1,meshNBins(1)
-					call findNeighboursWithinBin(elBins(i,j,k))
-					call findNeighboursAcrossBins(i,j,k,elBins)
+		else
+			call binElements(elBins)
+			do k=1,meshNBins(3)
+				do j=1,meshNBins(2)
+					do i=1,meshNBins(1)
+						call findNeighboursWithinBin(elBins(i,j,k))
+						call findNeighboursAcrossBins(i,j,k,elBins)
+					end do
 				end do
 			end do
-		end do
+			call writeElementNeighbourhoodData()
+		end if
 	end subroutine getElementNeighbours
 
 	subroutine binElements(elBins)
@@ -472,6 +477,16 @@ module mesh
 		elemUnitSt = elK*matmul(bt,b)*elemVol
 	end subroutine getElementUnitStiffness
 
+	subroutine shapeFunctionsAtPoint(elNum,pt,spFnVals)
+		integer,intent(in) :: elNum
+		real(8) :: spFns(4,4)
+		real(8),intent(in) :: pt(3)
+		real(8),intent(out) :: spFnVals(4)
+
+		spFns = getElementShapeFunctions(elNum)
+		spFnVals = (/1.0d0,pt/)
+		spFnVals = matmul(spFns,spFnVals)
+	end subroutine shapeFunctionsAtPoint
 !-----------------------------------------------------------------------!
 !	End of the element level functions for the mesh
 !-----------------------------------------------------------------------!
@@ -562,7 +577,7 @@ module mesh
 		integer :: i
 		character(72) :: datFile,wrtFmt
 
-		datFile = trim(adjustl(meshFile))//meshNHFile
+		datFile = trim(adjustl(meshFile))//meshNHFileSuff
 		datFile = commDatDir//trim(adjustl(datFile))//commDatExt
 		wrtFmt = '(1x,4(i8,1x,i4))'
 		open(datFileNum,file=datFile)
