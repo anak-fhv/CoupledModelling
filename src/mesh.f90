@@ -2,11 +2,11 @@
 
 module mesh
 
-	use commonRoutines, only: commDatDir,commResDir,commMeshExt,		&
-							  commDatExt,indexedSortInteger,			&
-							  checkIoError,getFaceIndex,getFaceNodes,	&
-							  invertReal4by4,determinantReal4by4,		&
-							  triangleArea
+	use utilities, only: commDatDir,commResDir,commMeshExt,commDatExt,	&
+						 indexedSortInteger,checkIoError,getFaceIndex,	&
+						 getFaceNodes,invertReal4by4,triangleArea,		&
+						 determinantReal4by4
+							  
 
 	implicit none
 

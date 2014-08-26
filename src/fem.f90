@@ -1,8 +1,8 @@
 include 'mkl_pardiso.f90'	! Added for ParDiSo
 
-module femHelper
+module fem
 
-	use commonRoutines
+	use utilities
 	use mesh
 
 	implicit none
@@ -912,4 +912,4 @@ module femHelper
 !	Routines for postprocessing of results
 !-----------------------------------------------------------------------!
 
-end module femHelper
+end module fem

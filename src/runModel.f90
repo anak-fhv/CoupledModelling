@@ -2,7 +2,7 @@ program runModel
 
 !	use rt, only: rtSimple
 !	use fem, only: femSimple
-	use problemDefinition
+	use problem
 
 	implicit none
 

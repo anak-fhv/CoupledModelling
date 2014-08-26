@@ -20,42 +20,34 @@ $(OBJDIR):
 	mkdir -p $(OBJDIR)
 
 # All objects
-OBJECTS := 	$(OBJDIR)/runModel.o $(OBJDIR)/problemDefinition.o \
-		   	$(OBJDIR)/mesh.o $(OBJDIR)/femHelper.o $(OBJDIR)/rtHelper.o \
-			$(OBJDIR)/commonRoutines.o
+OBJECTS := 	$(OBJDIR)/runModel.o $(OBJDIR)/problem.o \
+		   	$(OBJDIR)/mesh.o $(OBJDIR)/fem.o $(OBJDIR)/rt.o \
+			$(OBJDIR)/utilities.o
 
 # Make all
 all: $(OBJECTS)
 	$(FC) $(FCFLAGS) -o $(OBJDIR)/test $(OBJECTS) $(LIBS)
 
-$(OBJDIR)/runModel.o: 	$(OBJDIR)/problemDefinition.o \
-						$(OBJDIR)/mesh.o $(OBJDIR)/femHelper.o \
-						$(OBJDIR)/rtHelper.o $(OBJDIR)/commonRoutines.o | $(OBJDIR)
+$(OBJDIR)/runModel.o: 	$(OBJDIR)/problem.o \
+						$(OBJDIR)/mesh.o $(OBJDIR)/fem.o \
+						$(OBJDIR)/rt.o $(OBJDIR)/utilities.o | $(OBJDIR)
 	$(FC) $(FCFLAGS) -I$(OBJDIR) -c runModel.f90 -o $(OBJDIR)/runModel.o
 
-#$(OBJDIR)/fem.o: 	$(OBJDIR)/mesh.o $(OBJDIR)/femHelper.o \
-#					$(OBJDIR)/commonRoutines.o | $(OBJDIR)
-#	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c fem.f90 -o $(OBJDIR)/fem.o
+$(OBJDIR)/problem.o: 	$(OBJDIR)/rt.o $(OBJDIR)/fem.o \
+								$(OBJDIR)/mesh.o $(OBJDIR)/utilities.o | $(OBJDIR)
+	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c problem.f90 -o $(OBJDIR)/problem.o
 
-#$(OBJDIR)/rt.o: 	$(OBJDIR)/mesh.o $(OBJDIR)/rtHelper.o \
-#					$(OBJDIR)/commonRoutines.o | $(OBJDIR)
-#	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c rt.f90 -o $(OBJDIR)/rt.o
-
-$(OBJDIR)/problemDefinition.o: 	$(OBJDIR)/rtHelper.o $(OBJDIR)/femHelper.o \
-								$(OBJDIR)/mesh.o $(OBJDIR)/commonRoutines.o | $(OBJDIR)
-	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c problemDefinition.f90 -o $(OBJDIR)/problemDefinition.o
-
-$(OBJDIR)/mesh.o: 	$(OBJDIR)/commonRoutines.o | $(OBJDIR)
+$(OBJDIR)/mesh.o: 	$(OBJDIR)/utilities.o | $(OBJDIR)
 	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c mesh.f90 -o $(OBJDIR)/mesh.o
 
-$(OBJDIR)/femHelper.o: 	$(OBJDIR)/commonRoutines.o $(OBJDIR)/mesh.o | $(OBJDIR)
-	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c femHelper.f90 -o $(OBJDIR)/femHelper.o
+$(OBJDIR)/fem.o: 	$(OBJDIR)/utilities.o $(OBJDIR)/mesh.o | $(OBJDIR)
+	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c fem.f90 -o $(OBJDIR)/fem.o
 
-$(OBJDIR)/rtHelper.o: 	$(OBJDIR)/commonRoutines.o $(OBJDIR)/mesh.o | $(OBJDIR)
-	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c rtHelper.f90 -o $(OBJDIR)/rtHelper.o
+$(OBJDIR)/rt.o: 	$(OBJDIR)/utilities.o $(OBJDIR)/mesh.o | $(OBJDIR)
+	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c rt.f90 -o $(OBJDIR)/rt.o
 
-$(OBJDIR)/commonRoutines.o: 	| $(OBJDIR)
-	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c commonRoutines.f90 -o $(OBJDIR)/commonRoutines.o
+$(OBJDIR)/utilities.o: 	| $(OBJDIR)
+	$(FC) $(FCFLAGS) -I$(OBJDIR) -module $(OBJDIR) -c utilities.f90 -o $(OBJDIR)/utilities.o
 
 # Clean everything
 clean:

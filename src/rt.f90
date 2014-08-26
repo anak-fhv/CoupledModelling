@@ -1,6 +1,6 @@
-module rtHelper
+module rt
 
-	use commonRoutines
+	use utilities
 	use mesh
 
 	implicit none
@@ -488,4 +488,4 @@ module rtHelper
 		end if
 	end subroutine getElementNumRays
 
-end module rtHelper
+end module rt

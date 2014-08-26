@@ -1,9 +1,9 @@
-module problemDefinition
+module problem
 
-	use femHelper
-	use rtHelper
+	use fem
+	use rt
 	use mesh
-	use commonRoutines
+	use utilities
 
 	implicit none
 
@@ -190,4 +190,4 @@ module problemDefinition
 
 	end subroutine rtFemSimple
 
-end module problemDefinition
+end module problem
