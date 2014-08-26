@@ -482,10 +482,10 @@ module rt
 			elNumRays = rtElemMinRays
 		end if
 		elRayPow = elEmPow/dble(elNumRays)
-		if(mod(elNum,1000) == 0) then
-			write(*,'(a,2x,e15.8,2x,a,2x,e15.8)')"elVol: ",elVol,"elCentTemp: ",elCentTemp
-			write(*,'(a,2x,e15.8,2x,a,2x,i5)')"elEmPow: ", elEmPow,"elNumRays: ",elNumRays
-		end if
+!		if(mod(elNum,1000) == 0) then
+!			write(*,'(a,2x,e15.8,2x,a,2x,e15.8)')"elVol: ",elVol,"elCentTemp: ",elCentTemp
+!			write(*,'(a,2x,e15.8,2x,a,2x,i5)')"elEmPow: ", elEmPow,"elNumRays: ",elNumRays
+!		end if
 	end subroutine getElementNumRays
 
 end module rt
