@@ -123,10 +123,6 @@ module rt
 				do j=1,elNr
 					call startRayInVolume(i,pL,pt,dir)
 					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
-					call shapeFunctionsAtPoint(i,pt,spFnVals)
-					elNodes = meshElems(i)%nodes
-					nodalSources(elNodes) = nodalSources(elNodes) - &
-					rtRefRayPow*spFnVals
 					cEl = i
 					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 					if(outPt) then
@@ -140,10 +136,6 @@ module rt
 					if(endEl .ne. 0) then
 						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
-						call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
-						elNodes = meshElems(endEl)%nodes
-						nodalSources(elNodes) = nodalSources(elNodes) + &
-						rtRefRayPow*spFnVals
 					end if
 				end do
 			end if
@@ -273,6 +265,59 @@ module rt
 			rayIterCt = rayIterCt + 1
 		end do
 	end subroutine traceSingleRay
+
+	subroutine traceOut(pRatio)
+		integer,parameter :: limoutpt=5
+		integer,parameter :: nAbsPtsFil=124,nEmPtsFil=248
+		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
+		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8),intent(in) :: pRatio(:)
+		real(8),allocatable :: nodalSources(:)
+		logical :: outPt
+		character(*),parameter :: emPtsFil=commResDir//"empts.out",	&
+								  absPtsFil=commResDir//"abspts.out"
+
+		open(nAbsPtsFil,file=absPtsFil)
+		open(nEmPtsFil,file=emPtsFil)
+		allocate(nodalSources(meshNumNodes))
+		nodalSources = 0.0d0
+		outPtCt = 0
+		do i=1,rtNumRays
+			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
+			write(nEmPtsFil,'(6(f15.12,2x))') pt,dir
+			cEl = emEl
+			call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+			if(outPt) then
+				outPtCt = outPtCt + 1
+				if(outptct .ge. limoutpt) then
+					write(*,*)"Count of dropped points reached limit."
+					stop
+				end if
+			end if
+!			if(endEl .ne. 0) then
+			do while(endEl .ne. 0)
+				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+				write(nAbsPtsFil,'(3(f15.12,2x))') endPt
+				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+				elNodes = meshElems(endEl)%nodes
+				nodalSources(elNodes) = nodalSources(elNodes) + 		&
+				rtRefRayPow*spFnVals
+				dir = getRaySphDir()
+				pL = getRayPathLength()
+				pt = endPt
+				cEl = endEl
+				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+			end do
+!			end if
+		end do
+		close(nEmPtsFil)
+		close(nAbsPtsFil)
+		open(975,file="../obj/tempRadSrc.out")
+			write(975,'(f20.13)') nodalSources
+		close(975)
+		call setMeshNodalValues(nodalSources,"S")
+		rtWallSrc = nodalSources
+	end subroutine traceOut
 
 	subroutine getNextFace(ec,pt,dir,newFc,lToFc)
 		integer :: fc,remNode,fcNodes(3)

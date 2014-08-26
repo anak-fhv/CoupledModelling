@@ -1,7 +1,5 @@
 program runModel
 
-!	use rt, only: rtSimple
-!	use fem, only: femSimple
 	use problem
 
 	implicit none
