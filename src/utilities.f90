@@ -1,4 +1,4 @@
-module commonRoutines
+module utilities
 
 	implicit none
 
@@ -304,4 +304,4 @@ module commonRoutines
 !	End of mathematical operation routines
 !-----------------------------------------------------------------------!
 
-end module commonRoutines
+end module utilities
