@@ -164,7 +164,8 @@ module problem
 		integer :: i,mainCtr,rtIterNum,nConstTSfs,mBinNum(3)
 		integer,allocatable :: mConstTSfIds(:)
 		real(8) :: totEmPow,rayPow,emSurfArea
-		real(8),allocatable :: pRatio(:),mSfConstTs(:)
+		real(8),allocatable :: pRatio(:),mSfConstTs(:),oldSrc(:),		&
+		avSrc(:)
 		character(*),parameter :: rtProbDatFile='../data/probData.dat',	&
 		femProbFile='../data/femData.dat'
 		character(72) :: mFileName,tempFileName,ctrString
@@ -217,12 +218,15 @@ module problem
 		end if
 
 		tempFileName = femResFile
+
 		do mainCtr = 1,rtIterNum
 			write(ctrString,'(i4.4)') mainCtr
 			femResFile = trim(adjustl(tempFileName))//trim(adjustl(ctrString))
 			if(mainCtr .eq. 1) then
 				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
 				mSfConstTs)
+				allocate(oldSrc(meshNumNodes))
+				oldSrc = 0.0d0
 				nConstTSfs = size(mSfConstTs,1)
 				allocate(pRatio(nConstTSfs))
 				totEmPow = sum(mSfConstTs**4.0d0)
@@ -237,17 +241,30 @@ module problem
 				rtElemSto = rtElemAbs
 				rtWallInf = rtElemAbs
 				rtElemAbs = 0
-				call runFem(mFileName)
 			else
 				call traceVolPowerBased()
 				rtElemSto = rtElemAbs + rtWallInf
 				rtElemAbs = 0
-				call runFem(mFileName)
 			end if
+			call getAveragedSource(oldSrc,avSrc)
+			rtNodalSrc = 0.0d0
+			call setMeshNodalValues(avSrc,"S")
+			call runFem(mFileName)
+			oldSrc = avSrc
+			deallocate(avSrc)
 			write(*,'(a,2x,i4)')"Main iteration number: ", mainCtr
 			write(*,'(a,2x,i8)')"Absorbed numbers: ", sum(rtElemSto)
 		end do
 
 	end subroutine rtFemSimple
+
+	subroutine getAveragedSource(oldSrc,avSrc)
+		real(8),parameter :: expAvFact = 0.5d0
+		real(8),intent(in) :: oldSrc(:)
+		real(8),allocatable,intent(out) :: avSrc(:)
+
+		allocate(avSrc(meshNumNodes))
+		avSrc = rtNodalSrc*expAvFact + oldSrc*(1.0d0-expAvFact)
+	end subroutine getAveragedSource
 
 end module problem
