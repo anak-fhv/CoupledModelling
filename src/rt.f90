@@ -527,10 +527,47 @@ module rt
 			elNumRays = rtElemMinRays
 		end if
 		elRayPow = elEmPow/dble(elNumRays)
-!		if(mod(elNum,1000) == 0) then
-!			write(*,'(a,2x,e15.8,2x,a,2x,e15.8)')"elVol: ",elVol,"elCentTemp: ",elCentTemp
-!			write(*,'(a,2x,e15.8,2x,a,2x,i5)')"elEmPow: ", elEmPow,"elNumRays: ",elNumRays
-!		end if
 	end subroutine getElementNumRays
+
+	subroutine popLargeSphDiffPhaseFunc()
+		integer :: i,nSplSteps,lV
+		real(8),parameter :: pi = 3.141592653589793d0
+		real(8) :: j,h,m,a,b,c,d,r,stepSize
+		real(8),allocatable :: x(:),y(:),yy(:)
+
+		nSplSteps = 50
+		h = 2.0d0/nSplSteps
+		allocate(x(nSplSteps+1))
+		allocate(y(nSplSteps+1))
+		do i=0,nSplSteps
+			x(i+1) = -1.0d0 + h*(i)
+			y(i+1) = (2.d0/(3.d0*pi))*((x(i+1)**2.d0)*acos(x(i+1)) 		&
+			-asin(x(i+1))/2.d0-(3.d0/2.d0)*x(i+1)*sqrt(1-x(i+1)**2.d0)	&
+			+ pi/4.d0)
+		end do
+
+		call cubicSplineNaturalFit(y,x,yy)
+
+		if(.not.(allocated(rtPFTable))) then
+			allocate(rtPFTable(rtNumPFTable))
+		end if
+		stepSize = 1.0d0/rtNumPFTable
+		i = 0
+		do m=0.0d0,1.0d0,stepSize
+			i = i+1
+			do lV=1,nSplSteps-1
+				r = (m-y(lV))/(y(lV+1)-y(lV))
+				if((r .gt. 0.0d0) .and. (r .lt. 1.0d0)) then
+					exit
+				end if
+			end do
+			a = (y(lV+1) - m)/(y(lV+1)-y(lV))
+			b = 1.d0-a
+			c = (1.d0/6.d0)*(a**3.d0-a)*(y(lV+1)-y(lV))**2.d0
+			d = (1.d0/6.d0)*(b**3.d0-b)*(y(lV+1)-y(lV))**2.d0
+			rtPFTable(i) = a*x(lV) + b*x(lV+1) + c*yy(lV) + d*yy(lV+1)
+		end do
+		rtPFTable(rtNumPFTable) = -1.0d0
+	end subroutine popLargeSphDiffPhaseFunc
 
 end module rt

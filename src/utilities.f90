@@ -53,6 +53,16 @@ module utilities
 !	general routines.
 !-----------------------------------------------------------------------!
 
+	subroutine getVolFracFromMassFrac(rho1,rho2,fm1,fv1)
+		real(8) :: rhoRatio,mfInv
+		real(8),intent(in) :: rho1,rho2,fm1
+		real(8),intent(out) :: fv1
+
+		rhoRatio = rho1/rho2
+		mfInv = 1.0d0/fm1 - 1
+		fv1 = 1.0d0/(rhoRatio*mfInv + 1)
+	end subroutine getVolFracFromMassFrac
+
 	subroutine indexedSortInteger(a,b)
 		integer,intent(inout) :: a(:)
 		integer,intent(out) :: b(size(a,1))
@@ -299,6 +309,64 @@ module utilities
 			A(2,3)*(A(3,1)*A(4,2)-A(3,2)*A(4,1)))
 
 	end function determinantReal4by4
+
+	subroutine cubicSplineNaturalFit(x,y,yy)
+		integer :: i,n
+		real(8),allocatable :: rhs(:),temp(:),lhs(:,:)
+		real(8),intent(in) :: x(:),y(:)
+		real(8),allocatable,intent(out) :: yy(:)
+
+		n = size(x,1)
+		allocate(lhs(n,n))
+		allocate(rhs(n))
+		allocate(temp(n))
+		allocate(yy(n-2))
+		lhs = 0.0d0
+		rhs = 0.0d0
+		do i=2,n-1
+			lhs(i,i-1) = (x(i)-x(i-1))/(6.d0)
+			lhs(i,i) = (x(i+1)-x(i-1))/(3.d0)
+			lhs(i,i+1) = (x(i+1)-x(i))/(6.d0)
+			rhs(i) = (y(i+1)-y(i))/(x(i+1)-x(i)) - 						&
+			(y(i)-y(i-1))/(x(i)-x(i-1))
+		end do
+
+		call triDiagonalSolver(lhs(2:n-1,2:n-1),rhs(2:n-1),yy)
+		temp = 0.0d0
+		temp(2:n-1) = yy
+		call move_alloc(temp,yy)
+	end subroutine cubicSplineNaturalFit
+
+	subroutine triDiagonalSolver(lhs,rhs,sols)
+		integer :: i,n
+		real(8),intent(in) :: lhs(:,:),rhs(:)
+		real(8),allocatable :: l(:,:),r(:)
+		real(8),allocatable,intent(out) :: sols(:)
+
+		n = size(rhs,1)
+		allocate(r(n))
+		allocate(l(n,n))
+		allocate(sols(n))
+		l = lhs
+		r = rhs
+		do i=1,n-1
+			if(i==1) then
+				l(i,i+1) = l(i,i+1)/l(i,i)
+				r(i) = r(i)/l(i,i)
+			else
+				l(i,i+1) = l(i,i+1)/(l(i,i)-l(i,i-1)*l(i-1,i))
+				r(i) = (r(i)-l(i,i-1)*r(i-1))
+				r(i) = r(i)/(l(i,i)-l(i,i-1)*l(i-1,i))
+			end if
+		end do
+		r(n) = (r(n)-l(n,n-1)*r(n-1))/(l(n,n)-l(n,n-1)*l(n-1,n))
+		sols(n) = r(n)
+		do i=n-1,1,-1
+			sols(i) = r(i) - l(i,i+1)*sols(i+1)
+		end do
+		deallocate(r)
+		deallocate(l)
+	end subroutine triDiagonalSolver
 
 !-----------------------------------------------------------------------!
 !	End of mathematical operation routines

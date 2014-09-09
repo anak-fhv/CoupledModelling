@@ -259,7 +259,7 @@ module problem
 	end subroutine rtFemSimple
 
 	subroutine getAveragedSource(oldSrc,avSrc)
-		real(8),parameter :: expAvFact = 0.5d0
+		real(8),parameter :: expAvFact = 0.05d0
 		real(8),intent(in) :: oldSrc(:)
 		real(8),allocatable,intent(out) :: avSrc(:)
 
