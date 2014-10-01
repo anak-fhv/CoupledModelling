@@ -13,11 +13,12 @@ module rt
 	end type emissionSurface
 
 !	Module variables
+	integer,parameter :: rtNumPFTable=10000
 	integer :: rtNumRays,rtElemMinRays
 	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
 	rtWallInf(:)
 	real(8) :: rtKappa,rtSigma,rtRefRayPow
-	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:)
+	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
@@ -529,13 +530,32 @@ module rt
 		elRayPow = elEmPow/dble(elNumRays)
 	end subroutine getElementNumRays
 
-	subroutine popLargeSphDiffPhaseFunc()
+	subroutine getLargeDiffSphMu(rMu,mu)
+		integer :: interLoc
+		real(8),parameter :: muMin = 0.0d0, muMax = 1.0d0
+		real(8) :: lV,hV,ratio
+		real(8),intent(in) :: rMu
+		real(8),intent(out) :: mu
+
+		ratio = (rMu-muMin)/(muMax-muMin)
+		interLoc = floor(ratio*rtNumPFTable)
+		if(interLoc == 0) then
+			interLoc = 1
+		end if
+		lV = rtPFTable(interLoc)
+		hV = rtPFTable(interLoc+1)
+		randLv = (interLoc-1)*1.0d0/rtNumPFTable
+		randhV = (interLoc)*1.0d0/rtNumPFTable
+		mu = lV + ((rMu-randLv)/(randHv-randLv))*(hV-lV)
+	end subroutine getLargeDiffSphMu
+
+	subroutine popLargeSphDiffMuTable()
 		integer :: i,nSplSteps,lV
 		real(8),parameter :: pi = 3.141592653589793d0
 		real(8) :: j,h,m,a,b,c,d,r,stepSize
 		real(8),allocatable :: x(:),y(:),yy(:)
 
-		nSplSteps = 50
+		nSplSteps = 10
 		h = 2.0d0/nSplSteps
 		allocate(x(nSplSteps+1))
 		allocate(y(nSplSteps+1))
@@ -568,6 +588,15 @@ module rt
 			rtPFTable(i) = a*x(lV) + b*x(lV+1) + c*yy(lV) + d*yy(lV+1)
 		end do
 		rtPFTable(rtNumPFTable) = -1.0d0
-	end subroutine popLargeSphDiffPhaseFunc
+	end subroutine popLargeSphDiffMuTable
+
+	subroutine getUnifCloudCoeffs(alpha,rho,dP,Nt)
+		integer,intent(in) :: Nt
+		real(8),intent(in) :: alpha,rho,dp
+
+		rtKappa = pi*((dp/2.0d0)**2.0d0)*Nt*alpha
+		rtSigma = pi*((dp/2.0d0)**2.0d0)*Nt*rho
+		rtBeta = rtKappa + rtSigma
+	end subroutine getUnifCloudCoeffs
 
 end module rt

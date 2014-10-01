@@ -63,6 +63,13 @@ module utilities
 		fv1 = 1.0d0/(rhoRatio*mfInv + 1)
 	end subroutine getVolFracFromMassFrac
 
+	function getPPVConstParticleSize(fV,dP) result(Nt)
+		integer :: Nt
+		real(8),intent(in) :: fV,dP
+
+		Nt = nint(fV/((pi/6.0d0)*dP**3.0d0))
+	end function getPPVConstParticleSize
+
 	subroutine indexedSortInteger(a,b)
 		integer,intent(inout) :: a(:)
 		integer,intent(out) :: b(size(a,1))
