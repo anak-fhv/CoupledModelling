@@ -138,39 +138,6 @@ module utilities
 		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
 	end function selTriPoint
 
-	function getRaySphDir() result(dir)
-		real(8) :: r1,r2,th,ph,dir(3)
-
-		call random_number(r1)
-		call random_number(r2)
-		ph = 2*pi*r1
-		th = acos(1.0d0 - 2.0d0*r2)
-		dir(1) = sin(th)*cos(ph)
-		dir(2) = sin(th)*sin(ph)
-		dir(3) = cos(th)
-	end function getRaySphDir
-
-	function getFaceRayDir(fcVerts,fcNorm) result(dir)
-		real(8),intent(in) :: fcVerts(3),fcNorm(3)
-		real(8):: th,ph,dir(3)
-
-		call random_number(th)
-		th = asin(sqrt(th))
-		call random_number(ph)
-    	ph = 2.0d0*pi*ph
-		dir(1) = sin(th)*cos(ph)
-		dir(2) = sin(th)*sin(ph)
-		dir(3) = cos(th)
-
-		if(dot_product(fcNorm,dir) .lt. 0) then
-			th = pi-th
-			dir(1) = sin(th)*cos(ph)
-			dir(2) = sin(th)*sin(ph)
-			dir(3) = cos(th)
-		end if
-
-	end function getFaceRayDir
-
 	function getFaceNorm(fcVerts,remVert,inward) result(fcNorm)
 		integer :: i
 		real(8),parameter :: small=0.000000000001d0

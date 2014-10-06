@@ -17,7 +17,7 @@ module rt
 	integer :: rtNumRays,rtElemMinRays
 	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
 	rtWallInf(:)
-	real(8) :: rtKappa,rtSigma,rtRefRayPow
+	real(8) :: rtBeta,rtKappa,rtSigma,rtRefRayPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
@@ -490,6 +490,19 @@ module rt
 		dirOut = dirIn + 2.0d0*cosInc*fcNorm
 	end function specularReflection
 
+	function totalReflectionCheck(fcNorm,dirIn,n1,n2) result(tr)
+		real(8) :: ratio,angle,n1,n2,fcNorm(3),dirIn(3)
+		logical :: tr
+
+		angle = acos(dot_product(fcNorm,dirIn))
+		ratio = (n1/n2)*sin(angle)
+		if(ratio .gt. 1.d0) then
+			tr = .true.
+		else
+			tr = .false.
+		end if
+	end function totalReflectionCheck
+
 	function getRayPathLength() result(pathLength)
 		real(8) :: randL,pathLength
 
@@ -527,13 +540,13 @@ module rt
 		if(elNumRays .lt. rtElemMinRays) then
 			elNumRays = rtElemMinRays
 		end if
-		elRayPow = elEmPow/dble(elNumRays)
+		elRayPow = elEmPow/real(elNumRays,8)
 	end subroutine getElementNumRays
 
 	subroutine getLargeDiffSphMu(rMu,mu)
 		integer :: interLoc
 		real(8),parameter :: muMin = 0.0d0, muMax = 1.0d0
-		real(8) :: lV,hV,ratio
+		real(8) :: randLv,randhV,lV,hV,ratio
 		real(8),intent(in) :: rMu
 		real(8),intent(out) :: mu
 
@@ -598,5 +611,50 @@ module rt
 		rtSigma = pi*((dp/2.0d0)**2.0d0)*Nt*rho
 		rtBeta = rtKappa + rtSigma
 	end subroutine getUnifCloudCoeffs
+
+	function getRaySphDir() result(dir)
+		real(8) :: r1,r2,th,ph,dir(3)
+
+		call random_number(r1)
+		call random_number(r2)
+		ph = 2*pi*r1
+		th = acos(1.0d0 - 2.0d0*r2)
+		dir = getDirectionCoords(th,ph)
+!		dir(1) = sin(th)*cos(ph)
+!		dir(2) = sin(th)*sin(ph)
+!		dir(3) = cos(th)
+	end function getRaySphDir
+
+	function getFaceRayDir(fcVerts,fcNorm) result(dir)
+		real(8),intent(in) :: fcVerts(3),fcNorm(3)
+		real(8):: th,ph,dir(3)
+
+		call random_number(th)
+		th = asin(sqrt(th))
+		call random_number(ph)
+    	ph = 2.0d0*pi*ph
+		dir = getDirectionCoords(th,ph)
+!		dir(1) = sin(th)*cos(ph)
+!		dir(2) = sin(th)*sin(ph)
+!		dir(3) = cos(th)
+
+		if(dot_product(fcNorm,dir) .lt. 0) then
+			th = pi-th
+			dir = getDirectionCoords(th,ph)
+!			dir(1) = sin(th)*cos(ph)
+!			dir(2) = sin(th)*sin(ph)
+!			dir(3) = cos(th)
+		end if
+
+	end function getFaceRayDir
+
+	function getDirectionCoords(th,ph) result(dir)
+		real(8) :: th,ph,dir(3)
+
+		dir(1) = sin(th)*cos(ph)
+		dir(2) = sin(th)*sin(ph)
+		dir(3) = cos(th)
+		dir = dir/norm2(dir)
+	end function getDirectionCoords
 
 end module rt
