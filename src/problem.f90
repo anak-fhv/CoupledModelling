@@ -159,6 +159,65 @@ module problem
 
 	end subroutine rtReEmission
 
+	subroutine rtLED()
+		integer,parameter :: rtDatFileNum=102
+		integer :: i,mainCtr,rtIterNum,nEmSfs,mBinNum(3)
+		integer,allocatable :: mConstTSfIds(:)
+		real(8) :: totEmPow,rayPow,emSurfArea
+		real(8),allocatable :: pRatio(:),mSfConstTs(:)
+		character(*),parameter :: rtProbDatFile='../data/ledData.dat'
+		character(72) :: mFileName
+
+!	Some hard coded values still exist
+		rtIterNum = 1
+		emSurfArea = 4.0d0
+!	Need to rid ourselves of these pesky constants
+
+		open(rtDatFileNum,file=rtProbDatFile)
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) mFileName
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) mBinNum
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) nEmSfs
+		allocate(rtEmSfIds(nEmSfs))
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtEmSfIds
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtKappa
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtSigma
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) emSfPow
+		close(rtDatFileNum)
+
+		rtBeta = rtKappa + rtSigma
+
+		do mainCtr = 1,rtIterNum
+			if(mainCtr .eq. 1) then
+				call rtInitMeshLED(mFileName,mBinNum)
+				allocate(pRatio(nEmSfs))
+				pratio = 1.d0
+				write(*,*) "pRatio: ", pRatio
+				rtRefRayPow = emSfPow/rtNumRays
+				write(*,*) "rayPow: ", rayPow
+				call traceFromSurfLED(pRatio)
+				rtElemSto = rtElemAbs
+				rtWallInf = rtElemAbs
+				rtElemAbs = 0
+			else
+				call traceFromVol()
+				rtElemSto = rtElemAbs + rtWallInf
+				rtElemAbs = 0
+			end if
+			write(*,'(a,2x,i4)')"Main iteration number: ", mainCtr
+			write(*,'(a,2x,i8)')"Absorbed numbers: ", sum(rtElemSto)
+		end do
+		
+	end subroutine rtLED
+
 	subroutine rtFemSimple()
 		integer,parameter :: rtDatFileNum=101,femProbFilNum=102
 		integer :: i,mainCtr,rtIterNum,nConstTSfs,mBinNum(3)

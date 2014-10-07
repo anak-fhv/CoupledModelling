@@ -16,7 +16,7 @@ module rt
 	integer,parameter :: rtNumPFTable=10000
 	integer :: rtNumRays,rtElemMinRays
 	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
-	rtWallInf(:)
+	rtTrSfIds(:),rtWallInf(:)
 	real(8) :: rtBeta,rtKappa,rtSigma,rtRefRayPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
@@ -61,6 +61,39 @@ module rt
 		call createEmissionSurfaces()
 		write(*,*) "RTkappa: ", rtKappa
 	end subroutine rtInitMesh
+
+	subroutine rtInitMeshLED(mFileName,mBinNum)
+		integer :: i
+		integer,intent(in) :: mBinNum(3)
+		character(*),intent(in) :: mFileName
+
+		meshFile = trim(adjustl(mFileName))
+		meshNBins = mBinNum
+		call readMesh()
+		call getElementNeighbours()
+		call populateSurfaceFaceAreas()
+		if(.not.(allocated(rtElemAbs))) then
+			allocate(rtElemAbs(meshNumElems))
+		end if
+		if(.not.(allocated(rtElemSto))) then
+			allocate(rtElemSto(meshNumElems))
+		end if
+		if(.not.(allocated(rtWallInf))) then
+			allocate(rtWallInf(meshNumElems))
+		end if
+		if(.not.(allocated(rtWallSrc))) then
+			allocate(rtWallSrc(meshNumNodes))
+		end if
+		if(.not.(allocated(rtNodalSrc))) then
+			allocate(rtNodalSrc(meshNumNodes))
+		end if
+		rtElemAbs = 0
+		rtElemSto = 0
+		rtWallInf = 0
+		rtWallSrc = 0.0d0
+		rtNodalSrc = 0.0d0
+		call createLEDEmissionSurfaces()
+	end subroutine rtInitMeshLED
 
 	subroutine traceFromSurf(pRatio)
 		integer,parameter :: limoutpt=5
@@ -109,6 +142,54 @@ module rt
 !		call setMeshNodalValues(nodalSources,"S")
 		rtWallSrc = rtNodalSrc
 	end subroutine traceFromSurf
+
+	subroutine traceFromSurfLED(pRatio)
+		integer,parameter :: limoutpt=5
+		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
+		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
+		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8),intent(in) :: pRatio(:)
+		logical :: outPt
+		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
+								  sfAbPtsFil=commResDir//"surfpts.out"
+
+		open(nSfAbPtsFil,file=sfAbPtsFil)
+		open(nSfEmPtsFil,file=sfEmPtsFil)
+!		allocate(nodalSources(meshNumNodes))
+!		nodalSources = 0.0d0
+		rtNodalSrc = 0.0d0
+		outPtCt = 0
+		do i=1,rtNumRays
+			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
+			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
+			cEl = emEl
+			call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+			if(outPt) then
+				outPtCt = outPtCt + 1
+				if(outptct .ge. limoutpt) then
+					write(*,*)"Count of dropped points reached limit."
+					stop
+				end if
+			end if
+			if(endEl .ne. 0) then
+				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+				write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
+				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+				elNodes = meshElems(endEl)%nodes
+!				nodalSources(elNodes) = nodalSources(elNodes) + 		&
+!				rtRefRayPow*spFnVals
+				rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + 			&
+				rtRefRayPow*spFnVals
+			end if
+		end do
+		close(nSfEmPtsFil)
+		close(nSfAbPtsFil)
+		open(975,file="../obj/tempRadSrc.out")
+			write(975,'(f20.13)') rtNodalSrc
+		close(975)
+!		call setMeshNodalValues(nodalSources,"S")
+		rtWallSrc = rtNodalSrc
+	end subroutine traceFromSurfLED
 
 	subroutine traceFromVol()
 		integer,parameter :: limoutpt=5
@@ -266,6 +347,72 @@ module rt
 			rayIterCt = rayIterCt + 1
 		end do
 	end subroutine traceSingleRay
+
+	subroutine traceSingleRayWithTransmission(pt,dir,pL,cEl,outPt,	&
+	endEl,endPt)
+		integer :: i,rayIterCt,chCt,newFc,nEmSfs,nhbrFc,elNodes(4)
+		integer,intent(inout) :: cEl
+		integer,intent(out) :: endEl
+		integer,allocatable :: emSfIds(:)
+		real(8) :: lTrav,lToFc,newDir(3),ec(4,3)
+		real(8),intent(in) :: pL
+		real(8),intent(out) :: endPt(3)
+		real(8),intent(inout) :: pt(3),dir(3)
+		logical :: inFc
+		logical,intent(out) :: outPt
+
+		rayIterCt = 0
+		endEl = 0
+		endPt = 0.0d0
+		lTrav = 0.0d0
+		outPt = .false.
+		do while(lTrav.lt.pL)
+			elNodes = meshElems(cEl)%nodes
+			ec = meshVerts(elNodes,:)
+			pt = pt + PICO*dir
+			lTrav = lTrav+PICO
+			chCt = 0
+			if(rayIterCt .gt. MEGA) then
+				outPt = .true.
+				write(*,*)"Ray entered interminable loop"
+				exit					
+			end if
+			call getNextFace(ec,pt,dir,newFc,lToFc)
+			lTrav = lTrav + lToFc
+			if(lTrav.ge.pL) then
+				pt = pt + (pL-(lTrav-lToFc))*dir
+				endEl = cEl
+				endPt = pt
+				exit
+			end if
+			pt = pt + lToFc*dir
+			inFc = checkNewPt(pt,dir,ec,newFc)
+			if(.not. inFc) then
+				write(*,*) "Point traced not within face."
+				write(*,*) "Elnum: ",cEl, "Raynum: ",i
+				outPt = .true.
+				exit
+			end if
+			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
+			if(nhbrFc .lt. 0) then
+				chCt = count(-nhbrFc==rtEmSfIds)
+				trCt = count(-nhbrFc==rtTrSfIds)
+				if((chCt == 0) .and. (trCt == 0)) then
+					newDir = specularReflection(ec,newFc,dir)
+					dir = newDir
+				end if
+				if(trCt .gt. 0) then
+					call totalReflectionCheck(ec,newFc,dir,n1,n2)
+				end if
+				if(chCt .gt. 0) then
+					lTrav = MEGA
+					exit
+				end if
+			end if
+			cEl = meshElems(cEl)%neighbours(newFc,1)
+			rayIterCt = rayIterCt + 1
+		end do
+	end subroutine traceSingleRayWithTransmission
 
 	subroutine traceOut(pRatio)
 		integer,parameter :: limoutpt=5
@@ -470,6 +617,36 @@ module rt
 		end do
 	end subroutine createEmissionSurfaces
 
+	subroutine createLEDEmissionSurfaces()
+		integer :: i,j,nEmSf,currSurf,nEmFcs,elNum,fcNum,fcNodes(3),	&
+		elNodes(4)
+		real(8) :: fcEmPow,fcArea,fcCentT,emSfArea,fcNoTs(3)
+
+		nEmSf = size(rtEmSfIds,1)
+		if(.not.(allocated(rtEmSurfs))) then
+			allocate(rtEmSurfs(nEmSf))
+		end if
+		do i=1,nEmSf
+			currSurf = rtEmSfIds(i)
+			rtEmSurfs(i)%emSurf = meshSurfs(currSurf)
+			nEmFcs = meshSurfs(currSurf)%numFcs
+			if(.not.(allocated(rtEmSurfs(i)%cuSumFcEmPow))) then
+				allocate(rtEmSurfs(i)%cuSumFcEmPow(nEmFcs))
+			end if
+			emSfArea = 0.d0
+			do j=1,nEmFcs
+				elNum = rtEmSurfs(i)%emSurf%elNum(j)
+				elNodes = meshElems(elNum)%nodes
+				fcNum = rtEmSurfs(i)%emSurf%fcNum(j)
+				fcArea = rtEmSurfs(i)%emSurf%fcArea(j)
+				emSfArea = emSfArea+fcArea
+				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfArea
+			end do
+			rtEmSurfs(i)%totEmPow = emSfArea
+			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfArea
+		end do
+	end subroutine createLEDEmissionSurfaces
+
 	function specularReflection(ec,fcNum,dirIn) result(dirOut)
 		integer :: remNo,fcNodes(3)
 		integer,intent(in) :: fcNum
@@ -490,11 +667,19 @@ module rt
 		dirOut = dirIn + 2.0d0*cosInc*fcNorm
 	end function specularReflection
 
-	function totalReflectionCheck(fcNorm,dirIn,n1,n2) result(tr)
-		real(8) :: ratio,angle,n1,n2,fcNorm(3),dirIn(3)
+	function totalReflectionCheck(ec,fcNum,dirIn,n1,n2) result(tr)
+		integer,intent(in) :: fcNum
+		real(8),intent(in) :: n1,n2,ec(4,3),dirIn(3)
+		real(8) :: ratio,angle
 		logical :: tr
 
-		angle = acos(dot_product(fcNorm,dirIn))
+		fcNodes = getFaceNodes(fcNum)
+		remNo = 10-sum(fcNodes)
+		fcVerts = ec(fcNodes,:)
+		remVert = ec(remNo,:)
+		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
+		cosInc = -dot_product(dirIn,fcNorm)
+		
 		ratio = (n1/n2)*sin(angle)
 		if(ratio .gt. 1.d0) then
 			tr = .true.
