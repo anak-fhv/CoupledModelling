@@ -168,7 +168,7 @@ module rt
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
 		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4),cb,cy
-		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),spFnVals(4)
+		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),ptScr(3),spFnVals(4)
 		real(8),intent(in) :: pRatio(:)
 		logical :: outPt,blue,trans
 		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
@@ -181,6 +181,7 @@ module rt
 		cb = 1
 		cy = 2
 		open(1975,file="../results/tempOutPts.out")
+		open(1995,file="../results/screenpts.out")
 		do i=1,rtNumRays
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
@@ -222,6 +223,10 @@ module rt
 !								write(*,*) "Pt: ", pt
 !								write(*,*) "Dir: ", dirOut
 								write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cy
+								if(dir(3) .gt. 0.d0) then
+									ptScr = ((3.d0-pt(3))/dirOut(3))*dirOut + pt
+									write(1995,'(3(f12.9,2x),i2)') ptScr, cy
+								end if
 							end if
 						else
 							rtElemAbs(endEl) = rtElemAbs(endEl) + 1
@@ -248,11 +253,16 @@ module rt
 !						write(*,*) "Pt: ", pt
 !						write(*,*) "Dir: ", dirOut
 						write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cb
+						if(dir(3) .gt. 0.d0) then
+							ptScr = ((3.d0-pt(3))/dirOut(3))*dirOut + pt
+							write(1995,'(3(f12.9,2x),i2)') ptScr,cb
+						end if
 					end if
 					blue = .false.
 				end if
 			end do
 		end do
+		close(1995)
 		close(1975)
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
