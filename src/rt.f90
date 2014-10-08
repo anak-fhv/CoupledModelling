@@ -167,10 +167,10 @@ module rt
 	subroutine traceFromSurfLED(pRatio)
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
-		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
+		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4),cb,cy
 		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),spFnVals(4)
 		real(8),intent(in) :: pRatio(:)
-		logical :: outPt,blue
+		logical :: outPt,blue,trans
 		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
 								  sfAbPtsFil=commResDir//"surfpts.out"
 
@@ -178,7 +178,10 @@ module rt
 		open(nSfEmPtsFil,file=sfEmPtsFil)
 		rtNodalSrc = 0.0d0
 		outPtCt = 0
-		do i=1,100
+		cb = 1
+		cy = 2
+		open(1975,file="../results/tempOutPts.out")
+		do i=1,100000
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
 			blue = .true.
@@ -186,7 +189,7 @@ module rt
 			write(*,*) "Tracing with LED, i: ", i
 			do while(blue)
 				call traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,	&
-				endPt,dirOut)
+				endPt,trans,dirOut)
 !				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 				if(outPt) then
 					outPtCt = outPtCt + 1
@@ -209,13 +212,17 @@ module rt
 								pt = endPt
 								cEl = endEl
 								call traceSingleRayWithTrans(pt,dir,pL,	&
-								cEl,outPt,endEl,endPt,dirOut)
+								cEl,outPt,endEl,endPt,trans,dirOut)
 !								call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 							end do
 !							Here, we have to include results for the transmitted ray
 !							in the form of point and direction
-							write(*,*) "Ray transmitted"
-							write(*,*) "Pt: ", pt
+							if(trans) then
+								write(*,*) "Ray transmitted"
+								write(*,*) "Pt: ", pt
+								write(*,*) "Dir: ", dirOut
+								write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cy
+							end if
 						else
 							rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 							write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
@@ -236,12 +243,17 @@ module rt
 				else
 !					Here, we have to include results for the transmitted ray
 !					in the form of point and direction
-					write(*,*) "Ray transmitted"
-					write(*,*) "Pt: ", pt
+					if(trans) then
+						write(*,*) "Ray transmitted"
+						write(*,*) "Pt: ", pt
+						write(*,*) "Dir: ", dirOut
+						write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cb
+					end if
 					blue = .false.
 				end if
 			end do
 		end do
+		close(1975)
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
 		open(975,file="../obj/tempRadSrc.out")
@@ -261,7 +273,7 @@ module rt
 	end function scatterRay
 
 	subroutine traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,endPt,	&
-	dirOut)
+	trans,dirOut)
 		integer :: i,rayIterCt,chCt,trCt,newFc,nEmSfs,nhbrFc,elNodes(4)
 		integer,intent(inout) :: cEl
 		integer,intent(out) :: endEl
@@ -270,8 +282,8 @@ module rt
 		real(8),intent(in) :: pL
 		real(8),intent(out) :: endPt(3),dirOut(3)
 		real(8),intent(inout) :: pt(3),dir(3)
-		logical :: inFc,trans
-		logical,intent(out) :: outPt
+		logical :: inFc
+		logical,intent(out) :: outPt,trans
 
 		rayIterCt = 0
 		endEl = 0
@@ -279,6 +291,7 @@ module rt
 		lTrav = 0.0d0
 		dirOut = 0.0d0
 		outPt = .false.
+		trans = .false.
 		do while(lTrav.lt.pL)
 			elNodes = meshElems(cEl)%nodes
 			ec = meshVerts(elNodes,:)
@@ -318,6 +331,7 @@ module rt
 					call transSurface(ec,newFc,dir,trans,newDir)
 					if(trans) then
 						lTrav = MEGA
+						dirOut = newDir
 						exit
 					end if
 					dir = newDir
