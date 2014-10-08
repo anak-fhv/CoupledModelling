@@ -62,6 +62,7 @@ module rt
 		end if
 		rtEmSfIds = (/rtConstTSfIds,rtConstQSfIds/)
 		call CreateUniformEmissionSurfaces()
+		call popLargeSphDiffMuTable()
 	end subroutine rtInit
 
 	subroutine rtInitMesh(mFileName,mBinNum)
@@ -220,7 +221,7 @@ module rt
 						pL = getRayPathLength()
 						pt = endPt
 						cEl = endEl
-						call scatterRay(dir)
+						dir = scatterRay()
 					end if
 				else
 !					Here, we have to include results for the transmitted ray
@@ -235,6 +236,16 @@ module rt
 		close(975)
 		rtWallSrc = rtNodalSrc
 	end subroutine traceFromSurfLED
+
+	function scatterRay() result(dir)
+		real(8) :: rMu,rPhi,mu,th,ph,dir(3)
+
+		call random_number(rMu)
+		call getLargeDiffSphMu(rMu,mu)
+		th = acos(mu)
+		ph = 2.d0*pi
+		dir = getDirectionCoords(th,ph)
+	end function scatterRay
 
 	subroutine traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,	&
 	endEl,endPt,dirOut)
@@ -838,7 +849,6 @@ module rt
 
 	subroutine popLargeSphDiffMuTable()
 		integer :: i,nSplSteps,lV
-		real(8),parameter :: pi = 3.141592653589793d0
 		real(8) :: j,h,m,a,b,c,d,r,stepSize
 		real(8),allocatable :: x(:),y(:),yy(:)
 

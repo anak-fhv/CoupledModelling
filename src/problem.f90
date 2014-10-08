@@ -160,9 +160,13 @@ module problem
 	end subroutine rtReEmission
 
 	subroutine rtLED()
+		integer :: i,mainCtr,rtIterNum,mBinNum(3)
+		real(8),allocatable :: pRatio(:)
+		character(72) :: mFileName
 
 		call readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
 		rtBeta = rtKappa + rtSigma
+		rtIterNum = 1
 		do mainCtr = 1,rtIterNum
 			if(mainCtr .eq. 1) then
 				call rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
@@ -247,8 +251,6 @@ module problem
 		read(rtDatFileNum,*) rtRefrInd
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumRays
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtIterNum
 		close(rtDatFileNum)
 	end subroutine readRtData
 
