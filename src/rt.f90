@@ -214,6 +214,8 @@ module rt
 							end do
 !							Here, we have to include results for the transmitted ray
 !							in the form of point and direction
+							write(*,*) "Ray transmitted"
+							write(*,*) "Pt: ", pt
 						else
 							rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 							write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
