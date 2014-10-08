@@ -172,7 +172,7 @@ module problem
 				call rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
 				allocate(pRatio(1))
 				pRatio = (/1.d0/)
-				rtRefRayPow = 1e-6
+				rtRefRayPow = 0.355/rtNumRays	! Hard coded, needs to change
 				rtAbsThr = rtKappa/rtBeta
 				rtReEmThr = 0.95d0
 				call traceFromSurfLED(pRatio)

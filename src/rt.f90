@@ -181,12 +181,12 @@ module rt
 		cb = 1
 		cy = 2
 		open(1975,file="../results/tempOutPts.out")
-		do i=1,100000
+		do i=1,rtNumRays
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
 			blue = .true.
 			cEl = emEl
-			write(*,*) "Tracing with LED, i: ", i
+!			write(*,*) "Tracing with LED, i: ", i
 			do while(blue)
 				call traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,	&
 				endPt,trans,dirOut)
@@ -202,10 +202,10 @@ module rt
 				if(endEl .ne. 0) then
 					call random_number(rAbs)
 					if(rAbs .lt. rtAbsThr) then
-						write(*,*) "Ray absorbed at: ", endEl
+!						write(*,*) "Ray absorbed at: ", endEl
 						call random_number(rReEm)
 						if(rReEm .lt. rtReEmThr) then
-							write(*,*) "Ray re-emitted"
+!							write(*,*) "Ray re-emitted"
 							do while(endEl .ne. 0)
 								dir = getRaySphDir()
 								pL = getRayPathLength()
@@ -218,9 +218,9 @@ module rt
 !							Here, we have to include results for the transmitted ray
 !							in the form of point and direction
 							if(trans) then
-								write(*,*) "Ray transmitted"
-								write(*,*) "Pt: ", pt
-								write(*,*) "Dir: ", dirOut
+!								write(*,*) "Ray transmitted"
+!								write(*,*) "Pt: ", pt
+!								write(*,*) "Dir: ", dirOut
 								write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cy
 							end if
 						else
@@ -234,7 +234,7 @@ module rt
 						end if
 						blue = .false.
 					else
-						write(*,*) "Ray scattered at: "
+!						write(*,*) "Ray scattered at: "
 						pL = getRayPathLength()
 						pt = endPt
 						cEl = endEl
@@ -244,9 +244,9 @@ module rt
 !					Here, we have to include results for the transmitted ray
 !					in the form of point and direction
 					if(trans) then
-						write(*,*) "Ray transmitted"
-						write(*,*) "Pt: ", pt
-						write(*,*) "Dir: ", dirOut
+!						write(*,*) "Ray transmitted"
+!						write(*,*) "Pt: ", pt
+!						write(*,*) "Dir: ", dirOut
 						write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cb
 					end if
 					blue = .false.
@@ -256,7 +256,7 @@ module rt
 		close(1975)
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
-		open(975,file="../obj/tempRadSrc.out")
+		open(975,file="../data/tempRadSrc.out")
 			write(975,'(f20.13)') rtNodalSrc
 		close(975)
 		rtWallSrc = rtNodalSrc
