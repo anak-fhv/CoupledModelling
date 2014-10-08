@@ -73,8 +73,8 @@ module problem
 
 		do mainCtr = 1,rtIterNum
 			if(mainCtr .eq. 1) then
-				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
-				mSfConstTs)
+!				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
+!				mSfConstTs)
 				nConstTSfs = size(mSfConstTs,1)
 				allocate(pRatio(nConstTSfs))
 				totEmPow = sum(mSfConstTs**4.0d0)
@@ -137,8 +137,8 @@ module problem
 
 		do mainCtr = 1,rtIterNum
 			if(mainCtr .eq. 1) then
-				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
-				mSfConstTs)
+!				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
+!				mSfConstTs)
 				nConstTSfs = size(mSfConstTs,1)
 				allocate(pRatio(nConstTSfs))
 				totEmPow = sum(mSfConstTs**4.0d0)
@@ -161,7 +161,7 @@ module problem
 
 	subroutine rtLED()
 		integer :: i,mainCtr,rtIterNum,mBinNum(3)
-		real(8),allocatable :: pRatio(:)
+		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
 		character(72) :: mFileName
 
 		call readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
@@ -173,6 +173,8 @@ module problem
 				allocate(pRatio(1))
 				pRatio = (/1.d0/)
 				rtRefRayPow = 1e-6
+				rtAbsThr = rtKappa/rtBeta
+				rtReEmThr = 0.95d0
 				call traceFromSurfLED(pRatio)
 			end if
 		end do	
@@ -180,7 +182,7 @@ module problem
 
 	subroutine readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
 		integer,parameter :: rtDatFileNum=102
-		integer :: nEmSfs,nConstTSfs,nConstQSfs,nTrSfs,nNonPartSfs,		&
+		integer :: i,nEmSfs,nConstTSfs,nConstQSfs,nTrSfs,nNonPartSfs,	&
 		mBinNum(3)
 		real(8),allocatable :: mSfConstTs(:),mSfConstQs(:)
 		character(*),parameter :: rtProbDatFile='../data/ledData.dat'		
@@ -195,9 +197,9 @@ module problem
 		read(rtDatFileNum,*) rtNumEmSfs
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumCTSfs
-		if(nConstTSfs .gt. 0) then
-			allocate(rtConstTSfIds(nConstTSfs))
-			allocate(mSfConstTs(nConstTSfs))
+		if(rtNumCTSfs .gt. 0) then
+			allocate(rtConstTSfIds(rtNumCTSfs))
+			allocate(mSfConstTs(rtNumCTSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtConstTSfIds
 			read(rtDatFileNum,*)
@@ -209,9 +211,9 @@ module problem
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumCQSfs
-		if(nConstQSfs .gt. 0) then
-			allocate(rtConstQSfIds(nConstQSfs))
-			allocate(mSfConstQs(nConstQSfs))
+		if(rtNumCQSfs .gt. 0) then
+			allocate(rtConstQSfIds(rtNumCQSfs))
+			allocate(mSfConstQs(rtNumCQSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtConstQSfIds
 			read(rtDatFileNum,*)
@@ -223,8 +225,8 @@ module problem
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumTrSfs
-		if(nTrSfs .gt. 0) then
-			allocate (rtTrSfIds(nTrSfs))
+		if(rtNumTrSfs .gt. 0) then
+			allocate (rtTrSfIds(rtNumTrSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtTrSfIds
 		else
@@ -234,8 +236,8 @@ module problem
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumNpSfs
-		if(nNonPartSfs .gt. 0) then
-			allocate (rtNpSfIds(nNonPartSfs))
+		if(rtNumNpSfs .gt. 0) then
+			allocate (rtNpSfIds(rtNumNpSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtNpSfIds
 		else
@@ -318,8 +320,8 @@ module problem
 			write(ctrString,'(i4.4)') mainCtr
 			femResFile = trim(adjustl(tempFileName))//trim(adjustl(ctrString))
 			if(mainCtr .eq. 1) then
-				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
-				mSfConstTs)
+!				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
+!				mSfConstTs)
 				allocate(oldSrc(meshNumNodes))
 				oldSrc = 0.0d0
 				nConstTSfs = size(mSfConstTs,1)

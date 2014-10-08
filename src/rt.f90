@@ -19,13 +19,15 @@ module rt
 	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
 	rtConstTSfIds(:),rtConstQSfIds(:),rtTrSfIds(:),rtNpSfIds(:),		&
 	rtWallInf(:)
-	real(8) :: rtBeta,rtKappa,rtSigma,rtRefrInd,rtRefRayPow
+	real(8) :: rtBeta,rtKappa,rtSigma,rtRefrInd,rtRefRayPow,rtAbsThr,	&
+	rtReEmThr
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
 
 	subroutine rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+		integer :: i
 		integer,intent(in) :: mBinNum(3)
 		character(*),intent(in) :: mFileName
 		real(8),intent(in) :: mSfConstTs(:),mSfConstQs(:)
@@ -166,9 +168,9 @@ module rt
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
 		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
-		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),spFnVals(4)
 		real(8),intent(in) :: pRatio(:)
-		logical :: outPt
+		logical :: outPt,blue
 		character(*),parameter :: sfEmPtsFil=commResDir//"surfems.out",	&
 								  sfAbPtsFil=commResDir//"surfpts.out"
 
@@ -176,14 +178,16 @@ module rt
 		open(nSfEmPtsFil,file=sfEmPtsFil)
 		rtNodalSrc = 0.0d0
 		outPtCt = 0
-		do i=1,rtNumRays
+		do i=1,100
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
 			blue = .true.
 			cEl = emEl
+			write(*,*) "Tracing with LED, i: ", i
 			do while(blue)
 				call traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,	&
 				endPt,dirOut)
+!				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 				if(outPt) then
 					outPtCt = outPtCt + 1
 					if(outptct .ge. limoutpt) then
@@ -195,8 +199,10 @@ module rt
 				if(endEl .ne. 0) then
 					call random_number(rAbs)
 					if(rAbs .lt. rtAbsThr) then
-						call random_number(rReEmission)
-						if(rReEmission .lt. rtReEmThr) then
+						write(*,*) "Ray absorbed at: ", endEl
+						call random_number(rReEm)
+						if(rReEm .lt. rtReEmThr) then
+							write(*,*) "Ray re-emitted"
 							do while(endEl .ne. 0)
 								dir = getRaySphDir()
 								pL = getRayPathLength()
@@ -204,6 +210,7 @@ module rt
 								cEl = endEl
 								call traceSingleRayWithTrans(pt,dir,pL,	&
 								cEl,outPt,endEl,endPt,dirOut)
+!								call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 							end do
 !							Here, we have to include results for the transmitted ray
 !							in the form of point and direction
@@ -218,6 +225,7 @@ module rt
 						end if
 						blue = .false.
 					else
+						write(*,*) "Ray scattered at: "
 						pL = getRayPathLength()
 						pt = endPt
 						cEl = endEl
@@ -226,6 +234,9 @@ module rt
 				else
 !					Here, we have to include results for the transmitted ray
 !					in the form of point and direction
+					write(*,*) "Ray transmitted"
+					write(*,*) "Pt: ", pt
+					blue = .false.
 				end if
 			end do
 		end do
@@ -247,9 +258,9 @@ module rt
 		dir = getDirectionCoords(th,ph)
 	end function scatterRay
 
-	subroutine traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,	&
-	endEl,endPt,dirOut)
-		integer :: i,rayIterCt,chCt,newFc,nEmSfs,nhbrFc,elNodes(4)
+	subroutine traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,endPt,	&
+	dirOut)
+		integer :: i,rayIterCt,chCt,trCt,newFc,nEmSfs,nhbrFc,elNodes(4)
 		integer,intent(inout) :: cEl
 		integer,intent(out) :: endEl
 		integer,allocatable :: emSfIds(:)
@@ -257,7 +268,7 @@ module rt
 		real(8),intent(in) :: pL
 		real(8),intent(out) :: endPt(3),dirOut(3)
 		real(8),intent(inout) :: pt(3),dir(3)
-		logical :: inFc
+		logical :: inFc,trans
 		logical,intent(out) :: outPt
 
 		rayIterCt = 0
@@ -302,7 +313,7 @@ module rt
 					dir = newDir
 				end if
 				if(trCt .gt. 0) then
-					call transSurface(ec,fcNum,dir,trans,newDir)
+					call transSurface(ec,newFc,dir,trans,newDir)
 					if(trans) then
 						lTrav = MEGA
 						exit
@@ -456,7 +467,7 @@ module rt
 			inFc = checkNewPt(pt,dir,ec,newFc)
 			if(.not. inFc) then
 				write(*,*) "Point traced not within face."
-				write(*,*) "Elnum: ",cEl, "Raynum: ",i
+				write(*,*) "Elnum: ",cEl, "FaceNum: ",newFc
 				outPt = .true.
 				exit
 			end if
@@ -701,7 +712,8 @@ module rt
 				elNodes = meshElems(elNum)%nodes
 				fcNum = rtEmSurfs(i)%emSurf%fcNum(j)
 				fcArea = rtEmSurfs(i)%emSurf%fcArea(j)
-				emSfPow = fcArea*1.d0					! Temporary to ease notation
+				fcEmPow = fcArea*1.d0					! Temporary to ease notation
+				emSfPow = emSfPow+fcEmPow
 				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfPow
 			end do
 			rtEmSurfs(i)%totEmPow = emSfPow
@@ -736,9 +748,12 @@ module rt
 
 	subroutine transSurface(ec,fcNum,dirIn,trans,dirOut)
 		integer,intent(in) :: fcNum
+		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
-		real(8) :: rIndRatio,thi,trRatio,cosInc
+		real(8) :: rIndRatio,thi,trRatio,cosInc,sinThtsq,remVert(3),	&
+		fcNorm(3),fcVerts(3,3)
 		real(8),intent(in) :: ec(4,3),dirIn(3)
+		real(8),intent(out):: dirOut(3)
 		logical,intent(out) :: trans
 
 		trans = .false.
@@ -767,26 +782,26 @@ module rt
 		end if		
 	end subroutine transSurface
 
-	function totalReflectionCheck(ec,fcNum,dirIn,n1,n2) result(tr)
-		integer,intent(in) :: fcNum
-		real(8),intent(in) :: n1,n2,ec(4,3),dirIn(3)
-		real(8) :: ratio,angle
-		logical :: tr
+!	function totalReflectionCheck(ec,fcNum,dirIn,n1,n2) result(tr)
+!		integer,intent(in) :: fcNum
+!		real(8),intent(in) :: n1,n2,ec(4,3),dirIn(3)
+!		real(8) :: ratio,angle
+!		logical :: tr
 
-		fcNodes = getFaceNodes(fcNum)
-		remNo = 10-sum(fcNodes)
-		fcVerts = ec(fcNodes,:)
-		remVert = ec(remNo,:)
-		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
-		cosInc = -dot_product(dirIn,fcNorm)
-		
-		ratio = (n1/n2)*sin(angle)
-		if(ratio .gt. 1.d0) then
-			tr = .true.
-		else
-			tr = .false.
-		end if
-	end function totalReflectionCheck
+!		fcNodes = getFaceNodes(fcNum)
+!		remNo = 10-sum(fcNodes)
+!		fcVerts = ec(fcNodes,:)
+!		remVert = ec(remNo,:)
+!		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
+!		cosInc = -dot_product(dirIn,fcNorm)
+!		
+!		ratio = (n1/n2)*sin(angle)
+!		if(ratio .gt. 1.d0) then
+!			tr = .true.
+!		else
+!			tr = .false.
+!		end if
+!	end function totalReflectionCheck
 
 	function getRayPathLength() result(pathLength)
 		real(8) :: randL,pathLength
@@ -870,7 +885,7 @@ module rt
 		end if
 		stepSize = 1.0d0/rtNumPFTable
 		i = 0
-		do m=0.0d0,1.0d0,stepSize
+		do m=0.0d0,0.99999d0,stepSize
 			i = i+1
 			do lV=1,nSplSteps-1
 				r = (m-y(lV))/(y(lV+1)-y(lV))

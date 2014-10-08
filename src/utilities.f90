@@ -207,6 +207,7 @@ module utilities
 	end function getFaceNodes
 
     function insideFaceCheck(fcVerts,pt) result(ptInside)
+		integer :: i
         real(8),intent(in) :: pt(3),fcVerts(3,3)
         logical:: ptInside
         real(8) :: dpna,na(3),nx(3),ny(3),nz(3),bc(3)
@@ -223,6 +224,13 @@ module utilities
         ptInside = (all(bc.gt. 0.0d0).and.(abs(sum(bc)-1.0d0).le.PICO))
         if (.not.(ptInside)) then
 			write(*,*)"Point found not lying on face. Values: "
+			write(*,*) "point: "
+			write(*,'(3(f15.12,2x))') pt
+			write(*,*) "fcVerts: "
+			do i=1,3
+				write(*,'(3(f15.12,2x))') fcVerts(i,:)
+			end do
+			write(*,*) "bc: "
 	        write(*,'(3(f15.12,2x))') bc
 	        write(*,*) abs(sum(bc)-1.0d0)
         end if
