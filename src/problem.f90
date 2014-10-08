@@ -160,18 +160,27 @@ module problem
 	end subroutine rtReEmission
 
 	subroutine rtLED()
-		integer,parameter :: rtDatFileNum=102
-		integer :: i,mainCtr,rtIterNum,nEmSfs,mBinNum(3)
-		integer,allocatable :: mConstTSfIds(:)
-		real(8) :: totEmPow,rayPow,emSurfArea
-		real(8),allocatable :: pRatio(:),mSfConstTs(:)
-		character(*),parameter :: rtProbDatFile='../data/ledData.dat'
-		character(72) :: mFileName
 
-!	Some hard coded values still exist
-		rtIterNum = 1
-		emSurfArea = 4.0d0
-!	Need to rid ourselves of these pesky constants
+		call readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+		rtBeta = rtKappa + rtSigma
+		do mainCtr = 1,rtIterNum
+			if(mainCtr .eq. 1) then
+				call rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+				allocate(pRatio(1))
+				pRatio = (/1.d0/)
+				rtRefRayPow = 1e-6
+				call traceFromSurfLED(pRatio)
+			end if
+		end do	
+	end subroutine rtLED
+
+	subroutine readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+		integer,parameter :: rtDatFileNum=102
+		integer :: nEmSfs,nConstTSfs,nConstQSfs,nTrSfs,nNonPartSfs,		&
+		mBinNum(3)
+		real(8),allocatable :: mSfConstTs(:),mSfConstQs(:)
+		character(*),parameter :: rtProbDatFile='../data/ledData.dat'		
+		character(72) :: mFileName
 
 		open(rtDatFileNum,file=rtProbDatFile)
 		read(rtDatFileNum,*)
@@ -179,44 +188,69 @@ module problem
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mBinNum
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) nEmSfs
-		allocate(rtEmSfIds(nEmSfs))
+		read(rtDatFileNum,*) rtNumEmSfs
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtEmSfIds
+		read(rtDatFileNum,*) rtNumCTSfs
+		if(nConstTSfs .gt. 0) then
+			allocate(rtConstTSfIds(nConstTSfs))
+			allocate(mSfConstTs(nConstTSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtConstTSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) mSfConstTs
+		else
+			do i=1,4
+				read(rtDatFileNum,*)
+			end do
+		end if
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*) rtNumCQSfs
+		if(nConstQSfs .gt. 0) then
+			allocate(rtConstQSfIds(nConstQSfs))
+			allocate(mSfConstQs(nConstQSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtConstQSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) mSfConstQs
+		else
+			do i=1,4
+				read(rtDatFileNum,*)
+			end do
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumTrSfs
+		if(nTrSfs .gt. 0) then
+			allocate (rtTrSfIds(nTrSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtTrSfIds
+		else
+			do i=1,2
+				read(rtDatFileNum,*)
+			end do
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumNpSfs
+		if(nNonPartSfs .gt. 0) then
+			allocate (rtNpSfIds(nNonPartSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtNpSfIds
+		else
+			do i=1,2
+				read(rtDatFileNum,*)
+			end do
+		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtKappa
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtSigma
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) emSfPow
+		read(rtDatFileNum,*) rtRefrInd
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtIterNum
 		close(rtDatFileNum)
-
-		rtBeta = rtKappa + rtSigma
-
-		do mainCtr = 1,rtIterNum
-			if(mainCtr .eq. 1) then
-				call rtInitMeshLED(mFileName,mBinNum)
-				allocate(pRatio(nEmSfs))
-				pratio = 1.d0
-				write(*,*) "pRatio: ", pRatio
-				rtRefRayPow = emSfPow/rtNumRays
-				write(*,*) "rayPow: ", rayPow
-				call traceFromSurfLED(pRatio)
-				rtElemSto = rtElemAbs
-				rtWallInf = rtElemAbs
-				rtElemAbs = 0
-			else
-				call traceFromVol()
-				rtElemSto = rtElemAbs + rtWallInf
-				rtElemAbs = 0
-			end if
-			write(*,'(a,2x,i4)')"Main iteration number: ", mainCtr
-			write(*,'(a,2x,i8)')"Absorbed numbers: ", sum(rtElemSto)
-		end do
-		
-	end subroutine rtLED
+	end subroutine readRtData
 
 	subroutine rtFemSimple()
 		integer,parameter :: rtDatFileNum=101,femProbFilNum=102
