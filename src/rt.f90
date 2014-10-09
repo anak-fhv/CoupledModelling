@@ -182,6 +182,7 @@ module rt
 		cy = 2
 		open(1975,file="../results/tempOutPts.out")
 		open(1995,file="../results/screenpts.out")
+		open(1985,file="../results/scatterDirs.out")
 		do i=1,rtNumRays
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
@@ -225,7 +226,7 @@ module rt
 								write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cy
 								if(dir(3) .gt. 0.d0) then
 									ptScr = ((3.d0-pt(3))/dirOut(3))*dirOut + pt
-									write(1995,'(3(f12.9,2x),i2)') ptScr, cy
+									write(1995,'(3(f16.9,2x),i2)') ptScr, cy
 								end if
 							end if
 						else
@@ -243,7 +244,9 @@ module rt
 						pL = getRayPathLength()
 						pt = endPt
 						cEl = endEl
-						dir = scatterRay()
+!						dir = scatterRayIsotropic()
+						dir = scatterRayLargeSphereCloud()
+						write(1985,'(3(f15.12,2x))') dir
 					end if
 				else
 !					Here, we have to include results for the transmitted ray
@@ -263,6 +266,7 @@ module rt
 			end do
 		end do
 		close(1995)
+		close(1985)
 		close(1975)
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
@@ -272,15 +276,26 @@ module rt
 		rtWallSrc = rtNodalSrc
 	end subroutine traceFromSurfLED
 
-	function scatterRay() result(dir)
-		real(8) :: rMu,rPhi,mu,th,ph,dir(3)
+	function scatterRayIsotropic() result(dir)
+		real(8) :: rth,rph,th,ph,dir(3)
+
+		call random_number(rth)
+		th = acos(1.d0 - 2.d0*rth)
+		call random_number(rph)
+		ph = 2.d0*pi*rph
+		dir = getDirectionCoords(th,ph)
+	end function scatterRayIsotropic
+
+	function scatterRayLargeSphereCloud() result(dir)
+		real(8) :: rMu,rPhi,mu,th,rph,ph,dir(3)
 
 		call random_number(rMu)
 		call getLargeDiffSphMu(rMu,mu)
 		th = acos(mu)
-		ph = 2.d0*pi
+		call random_number(rph)
+		ph = 2.d0*pi*rph
 		dir = getDirectionCoords(th,ph)
-	end function scatterRay
+	end function scatterRayLargeSphereCloud
 
 	subroutine traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,endPt,	&
 	trans,dirOut)
@@ -776,7 +791,7 @@ module rt
 		integer,intent(in) :: fcNum
 		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
-		real(8) :: rIndRatio,thi,trRatio,cosInc,sinThtsq,remVert(3),	&
+		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
 		fcNorm(3),fcVerts(3,3)
 		real(8),intent(in) :: ec(4,3),dirIn(3)
 		real(8),intent(out):: dirOut(3)
@@ -795,17 +810,22 @@ module rt
             fcNorm = -fcNorm
         end if
 		rIndRatio = (rtRefrInd/n2)
+!		write(*,*) "rIndRatio: ", rIndRatio
 		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
 		if(trRatio .gt. 1.d0) then
 			dirOut = specularReflection(ec,fcNum,dirIn)
-			return
+!			write(*,*) "specular reflection"
 		else
 			trans = .true.
-			sinThtsq = (1.d0 - cosInc**2.d0)*(rIndRatio**2.d0)
-			dirOut = (rIndRatio*cosInc - sqrt(1.d0-sinThtsq))*fcNorm
+!			sinThtsq = (1.d0 - cosInc**2.d0)*(rIndRatio**2.d0)
+			sinTht = rIndRatio*sin(acos(cosInc))
+			dirOut = (rIndRatio*cosInc - sqrt(1.d0-sinTht**2.d0))*fcNorm
 			dirOut = dirOut + rIndRatio*dirIn
-			return
-		end if		
+!			write(*,*) "Transmission"
+		end if
+!		write(*,'(a,1x,3(f12.9,2x),a)')"fcNorm= [", fcNorm,"];"
+!		write(*,'(a,1x,3(f12.9,2x),a)')"dirIn= [", dirIn,"];"
+!		write(*,'(a,1x,3(f12.9,2x),a)')"dirOut= [", dirOut,"];"
 	end subroutine transSurface
 
 !	function totalReflectionCheck(ec,fcNum,dirIn,n1,n2) result(tr)
