@@ -77,45 +77,6 @@ module rt
 		call populateSurfaceFaceAreas()
 	end subroutine rtInitMesh
 
-!	subroutine rtInitMesh(mFileName,mBinNum,mConstTSfIds,mSfConstTs)
-!		integer :: i
-!		integer,intent(in) :: mBinNum(3),mConstTSfIds(:)
-!		real(8),intent(in) :: mSfConstTs(:)
-!		character(*),intent(in) :: mFileName
-
-!		meshFile = trim(adjustl(mFileName))
-!		meshNBins = mBinNum
-!		call readMesh()
-!		call getElementNeighbours()
-!		call populateSurfaceFaceAreas()
-!		do i=1,size(rtEmSfIds,1)
-!			call setSurfaceConstTemperature(rtEmSfIds(i),				&
-!			mSfConstTs(i))
-!		end do
-!		if(.not.(allocated(rtElemAbs))) then
-!			allocate(rtElemAbs(meshNumElems))
-!		end if
-!		if(.not.(allocated(rtElemSto))) then
-!			allocate(rtElemSto(meshNumElems))
-!		end if
-!		if(.not.(allocated(rtWallInf))) then
-!			allocate(rtWallInf(meshNumElems))
-!		end if
-!		if(.not.(allocated(rtWallSrc))) then
-!			allocate(rtWallSrc(meshNumNodes))
-!		end if
-!		if(.not.(allocated(rtNodalSrc))) then
-!			allocate(rtNodalSrc(meshNumNodes))
-!		end if
-!		rtElemAbs = 0
-!		rtElemSto = 0
-!		rtWallInf = 0
-!		rtWallSrc = 0.0d0
-!		rtNodalSrc = 0.0d0
-!		call createEmissionSurfaces()
-!		write(*,*) "RTkappa: ", rtKappa
-!	end subroutine rtInitMesh
-
 	subroutine traceFromSurf(pRatio)
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
@@ -128,8 +89,6 @@ module rt
 
 		open(nSfAbPtsFil,file=sfAbPtsFil)
 		open(nSfEmPtsFil,file=sfEmPtsFil)
-!		allocate(nodalSources(meshNumNodes))
-!		nodalSources = 0.0d0
 		rtNodalSrc = 0.0d0
 		outPtCt = 0
 		do i=1,rtNumRays
@@ -149,8 +108,6 @@ module rt
 				write(nSfAbPtsFil,'(3(f15.12,2x))') endPt
 				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
 				elNodes = meshElems(endEl)%nodes
-!				nodalSources(elNodes) = nodalSources(elNodes) + 		&
-!				rtRefRayPow*spFnVals
 				rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + 			&
 				rtRefRayPow*spFnVals
 			end if
@@ -160,14 +117,13 @@ module rt
 		open(975,file="../obj/tempRadSrc.out")
 			write(975,'(f20.13)') rtNodalSrc
 		close(975)
-!		call setMeshNodalValues(nodalSources,"S")
 		rtWallSrc = rtNodalSrc
 	end subroutine traceFromSurf
 
 	subroutine traceFromSurfLED(pRatio)
 		integer,parameter :: limoutpt=5
 		integer,parameter :: nSfAbPtsFil=175,nSfEmPtsFil=197
-		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4),cb,cy
+		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4),cb,cy,reEmCt,reEmDropCt
 		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),ptScr(3),spFnVals(4)
 		real(8),intent(in) :: pRatio(:)
 		logical :: outPt,blue,trans
@@ -181,18 +137,25 @@ module rt
 		cb = 1
 		cy = 2
 		open(1975,file="../results/tempOutPts.out")
-		open(1995,file="../results/screenpts.out")
+		open(1995,file="../results/screenpts_yellow.out")
+		open(1996,file="../results/screenpts_blue.out")
 		open(1985,file="../results/scatterDirs.out")
+		open(1965,file="../results/reEmDrop.out")
+		open(1955,file="../results/ptsBackplate.out")
+		reEmDropCt = 0
 		do i=1,rtNumRays
+!			write(*,*) "ray: ", i
+			if(mod(i,rtNumRays/10) .eq. 0) write(*,*) "Nrays: ",i
 			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
 			write(nSfEmPtsFil,'(6(f15.12,2x))') pt,dir
 			blue = .true.
 			cEl = emEl
-!			write(*,*) "Tracing with LED, i: ", i
+			if(i .eq. 13848) then
+				write(*,*) "First dropped: ", i
+			end if
 			do while(blue)
 				call traceSingleRayWithTrans(pt,dir,pL,cEl,outPt,endEl,	&
 				endPt,trans,dirOut)
-!				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 				if(outPt) then
 					outPtCt = outPtCt + 1
 					if(outptct .ge. limoutpt) then
@@ -202,32 +165,42 @@ module rt
 					blue = .false.
 				end if
 				if(endEl .ne. 0) then
+!					write(*,*) "Endel not zero"
 					call random_number(rAbs)
 					if(rAbs .lt. rtAbsThr) then
-!						write(*,*) "Ray absorbed at: ", endEl
+!						write(*,*) "Absorbed"
 						call random_number(rReEm)
 						if(rReEm .lt. rtReEmThr) then
-!							write(*,*) "Ray re-emitted"
+!							write(*,*) "Reemitted"
+							reEmCt = 0
 							do while(endEl .ne. 0)
+								reEmCt = reEmCt+1
+								if(reEmCt .gt. MEGA) then
+									write(*,*) "Ray dropped in reemission loop"
+									write(1965,'(2(i8,2x),2(3f12.9,2x))') i,endEl,pt,dir
+									reEmDropCt = reEmDropCt + 1
+									if(reEmDropCt .gt. 10) then
+										write(*,*) "Too many rays dropped in reEm loop"
+										stop
+									end if
+									exit
+								end if
 								dir = getRaySphDir()
 								pL = getRayPathLength()
 								pt = endPt
 								cEl = endEl
 								call traceSingleRayWithTrans(pt,dir,pL,	&
 								cEl,outPt,endEl,endPt,trans,dirOut)
-!								call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+!								write(*,*) "Stuck in re-emission loop"
 							end do
-!							Here, we have to include results for the transmitted ray
-!							in the form of point and direction
 							if(trans) then
-!								write(*,*) "Ray transmitted"
-!								write(*,*) "Pt: ", pt
-!								write(*,*) "Dir: ", dirOut
 								write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cy
 								if(dir(3) .gt. 0.d0) then
 									ptScr = ((3.d0-pt(3))/dirOut(3))*dirOut + pt
 									write(1995,'(3(f16.9,2x),i2)') ptScr, cy
 								end if
+							else
+								write(1955,'(2(i8,2x),6(f12.9,2x))') i,cEL,pt,dir
 							end if
 						else
 							rtElemAbs(endEl) = rtElemAbs(endEl) + 1
@@ -240,25 +213,18 @@ module rt
 						end if
 						blue = .false.
 					else
-!						write(*,*) "Ray scattered at: "
 						pL = getRayPathLength()
 						pt = endPt
 						cEl = endEl
-!						dir = scatterRayIsotropic()
 						dir = scatterRayLargeSphereCloud()
 						write(1985,'(3(f15.12,2x))') dir
 					end if
 				else
-!					Here, we have to include results for the transmitted ray
-!					in the form of point and direction
 					if(trans) then
-!						write(*,*) "Ray transmitted"
-!						write(*,*) "Pt: ", pt
-!						write(*,*) "Dir: ", dirOut
 						write(1975,'(6(f12.9,2x),i2)') pt,dirOut,cb
 						if(dir(3) .gt. 0.d0) then
 							ptScr = ((3.d0-pt(3))/dirOut(3))*dirOut + pt
-							write(1995,'(3(f12.9,2x),i2)') ptScr,cb
+							write(1996,'(3(f12.9,2x),i2)') ptScr,cb
 						end if
 					end if
 					blue = .false.
@@ -266,13 +232,18 @@ module rt
 			end do
 		end do
 		close(1995)
+		close(1996)
 		close(1985)
+		close(1965)
+		close(1955)
 		close(1975)
 		close(nSfEmPtsFil)
 		close(nSfAbPtsFil)
 		open(975,file="../data/tempRadSrc.out")
 			write(975,'(f20.13)') rtNodalSrc
 		close(975)
+		write(*,*) "Rays dropped in re-emission loop: ", reEmDropCt
+		write(*,*) "Out points in run: ", outPtCt
 		rtWallSrc = rtNodalSrc
 	end subroutine traceFromSurfLED
 
@@ -362,6 +333,9 @@ module rt
 					dir = newDir
 				end if
 				if(chCt .gt. 0) then
+!					endPt = pt
+!					dirOut = dir
+!					endEl = cEl
 					lTrav = MEGA
 					exit
 				end if
@@ -383,7 +357,6 @@ module rt
 
 		open(nVlEmPtsFil,file=vlEmPtsFil)
 		open(nVlAbPtsFil,file=vlAbPtsFil)
-!		allocate(nodalSources(meshNumNodes))
 		outPtCt = 0
 		do i=1,meshNumElems
 			elNr = rtElemSto(i)
@@ -410,11 +383,6 @@ module rt
 		end do
 		close(nVlAbPtsFil)
 		close(nVlEmPtsFil)
-!		nodalSources = nodalSources + rtWallSrc
-!		open(975,file="../obj/tempRadSrc.out")
-!			write(975,'(f20.13)') nodalSources
-!		close(975)
-!		call setMeshNodalValues(nodalSources,"S")
 	end subroutine traceFromVol
 
 	subroutine traceVolPowerBased()
@@ -556,7 +524,6 @@ module rt
 					stop
 				end if
 			end if
-!			if(endEl .ne. 0) then
 			do while(endEl .ne. 0)
 				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
 				write(nAbsPtsFil,'(3(f15.12,2x))') endPt
@@ -570,7 +537,6 @@ module rt
 				cEl = endEl
 				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
 			end do
-!			end if
 		end do
 		close(nEmPtsFil)
 		close(nAbsPtsFil)
@@ -810,44 +776,16 @@ module rt
             fcNorm = -fcNorm
         end if
 		rIndRatio = (rtRefrInd/n2)
-!		write(*,*) "rIndRatio: ", rIndRatio
 		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
 		if(trRatio .gt. 1.d0) then
 			dirOut = specularReflection(ec,fcNum,dirIn)
-!			write(*,*) "specular reflection"
 		else
 			trans = .true.
-!			sinThtsq = (1.d0 - cosInc**2.d0)*(rIndRatio**2.d0)
 			sinTht = rIndRatio*sin(acos(cosInc))
 			dirOut = (rIndRatio*cosInc - sqrt(1.d0-sinTht**2.d0))*fcNorm
 			dirOut = dirOut + rIndRatio*dirIn
-!			write(*,*) "Transmission"
 		end if
-!		write(*,'(a,1x,3(f12.9,2x),a)')"fcNorm= [", fcNorm,"];"
-!		write(*,'(a,1x,3(f12.9,2x),a)')"dirIn= [", dirIn,"];"
-!		write(*,'(a,1x,3(f12.9,2x),a)')"dirOut= [", dirOut,"];"
 	end subroutine transSurface
-
-!	function totalReflectionCheck(ec,fcNum,dirIn,n1,n2) result(tr)
-!		integer,intent(in) :: fcNum
-!		real(8),intent(in) :: n1,n2,ec(4,3),dirIn(3)
-!		real(8) :: ratio,angle
-!		logical :: tr
-
-!		fcNodes = getFaceNodes(fcNum)
-!		remNo = 10-sum(fcNodes)
-!		fcVerts = ec(fcNodes,:)
-!		remVert = ec(remNo,:)
-!		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
-!		cosInc = -dot_product(dirIn,fcNorm)
-!		
-!		ratio = (n1/n2)*sin(angle)
-!		if(ratio .gt. 1.d0) then
-!			tr = .true.
-!		else
-!			tr = .false.
-!		end if
-!	end function totalReflectionCheck
 
 	function getRayPathLength() result(pathLength)
 		real(8) :: randL,pathLength
@@ -892,7 +830,7 @@ module rt
 	subroutine getLargeDiffSphMu(rMu,mu)
 		integer :: interLoc
 		real(8),parameter :: muMin = 0.0d0, muMax = 1.0d0
-		real(8) :: randLv,randhV,lV,hV,ratio
+		real(8) :: randLv,randhV,lV,hV,ratio,intLocReal,numReal
 		real(8),intent(in) :: rMu
 		real(8),intent(out) :: mu
 
@@ -903,9 +841,13 @@ module rt
 		end if
 		lV = rtPFTable(interLoc)
 		hV = rtPFTable(interLoc+1)
-		randLv = (interLoc-1)*1.0d0/rtNumPFTable
-		randhV = (interLoc)*1.0d0/rtNumPFTable
+		intLocReal = real(interLoc,8)
+		numReal = real(rtNumPFTable,8)
+		randLv = (intLocReal-1)*1.0d0/numReal
+		randhV = (intLocReal)*1.0d0/numReal
 		mu = lV + ((rMu-randLv)/(randHv-randLv))*(hV-lV)
+		if(mu .lt. -1.d0) mu = -1.d0
+		if(mu .gt. 1.d0) mu = 1.d0
 	end subroutine getLargeDiffSphMu
 
 	subroutine popLargeSphDiffMuTable()
@@ -946,6 +888,9 @@ module rt
 			rtPFTable(i) = a*x(lV) + b*x(lV+1) + c*yy(lV) + d*yy(lV+1)
 		end do
 		rtPFTable(rtNumPFTable) = -1.0d0
+		open(1864,file="../results/rtPfTable.out")
+		write(1864,'(f12.9)') rtPfTable
+		close(1864)
 	end subroutine popLargeSphDiffMuTable
 
 	subroutine getUnifCloudCoeffs(alpha,rho,dP,Nt)
@@ -965,9 +910,6 @@ module rt
 		ph = 2*pi*r1
 		th = acos(1.0d0 - 2.0d0*r2)
 		dir = getDirectionCoords(th,ph)
-!		dir(1) = sin(th)*cos(ph)
-!		dir(2) = sin(th)*sin(ph)
-!		dir(3) = cos(th)
 	end function getRaySphDir
 
 	function getFaceRayDir(fcVerts,fcNorm) result(dir)
@@ -979,16 +921,10 @@ module rt
 		call random_number(ph)
     	ph = 2.0d0*pi*ph
 		dir = getDirectionCoords(th,ph)
-!		dir(1) = sin(th)*cos(ph)
-!		dir(2) = sin(th)*sin(ph)
-!		dir(3) = cos(th)
 
 		if(dot_product(fcNorm,dir) .lt. 0) then
 			th = pi-th
 			dir = getDirectionCoords(th,ph)
-!			dir(1) = sin(th)*cos(ph)
-!			dir(2) = sin(th)*sin(ph)
-!			dir(3) = cos(th)
 		end if
 
 	end function getFaceRayDir
