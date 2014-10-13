@@ -13,30 +13,36 @@ module rt
 	end type emissionSurface
 
 !	Module variables
-	integer,parameter :: rtNumPFTable=10000
-	integer :: rtNumRays,rtNumEmSfs,rtNumCTSfs,rtNumCQSfs,rtNumTrSfs,	&
-	rtNumNpSfs,rtElemMinRays
-	integer,allocatable :: rtElemAbs(:),rtElemSto(:),rtEmSfIds(:),		&
-	rtConstTSfIds(:),rtConstQSfIds(:),rtTrSfIds(:),rtNpSfIds(:),		&
+	integer,parameter :: rtNumPFTable=10000,rtElemMinRays=5
+	integer :: rtMCNumRays,rtNumEmSfs,rtNumCTEmSfs,rtNumCQEmSfs,		&
+	rtNumBBSfs,rtNumTrSfs,rtNumNPSfs
+	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
+	rtBBSfIds(:),rtTrSfIds(:),rtNPSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:)
-	real(8) :: rtBeta,rtKappa,rtSigma,rtRefrInd,rtRefRayPow,rtAbsThr,	&
-	rtReEmThr
-	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:)
+	real(8) :: rtBeta,rtKappa,rtSigma,rtRefrInd,rtReEmThr,rtAbsThr,		&
+	rtRefRayPow
+	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
+	rtCTEmSfVals(:),rtCQEmSfVals(:)
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
 
-	subroutine rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+	subroutine rtInit(mFileName,mBinNum)
 		integer :: i
 		integer,intent(in) :: mBinNum(3)
 		character(*),intent(in) :: mFileName
 		real(8),intent(in) :: mSfConstTs(:),mSfConstQs(:)
 
 		call rtInitMesh(mFileName,mBinNum)
-		if(rtNumCTSfs .gt. 0) then
-			do i=1,size(rtEmSfIds,1)
-				call setSurfaceConstTemperature(rtConstTSfIds(i),		&
-				mSfConstTs(i))
+		if(.not.(allocated(rtEmSfIds))) then
+			allocate(rtEmSfIds(rtNumEmSfs))
+		end if
+		call popLargeSphDiffMuTable()
+		rtEmSfIds = (/rtConstTSfIds,rtConstQSfIds/)
+		if(rtNumCTEmSfs .gt. 0) then
+			do i=1,rtNumCTEmSfs
+				call setSurfaceConstTemperature(rtCTEmSfIds(i),			&
+				rtCTEmSfVals(i))
 			end do
 		end if
 		if(.not.(allocated(rtElemAbs))) then
@@ -59,12 +65,7 @@ module rt
 		rtWallInf = 0
 		rtWallSrc = 0.0d0
 		rtNodalSrc = 0.0d0
-		if(.not.(allocated(rtEmSfIds))) then
-			allocate(rtEmSfIds(rtNumEmSfs))
-		end if
-		rtEmSfIds = (/rtConstTSfIds,rtConstQSfIds/)
 		call CreateUniformEmissionSurfaces()
-		call popLargeSphDiffMuTable()
 	end subroutine rtInit
 
 	subroutine rtInitMesh(mFileName,mBinNum)

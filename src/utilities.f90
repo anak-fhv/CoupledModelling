@@ -350,6 +350,14 @@ module utilities
 		deallocate(l)
 	end subroutine triDiagonalSolver
 
+	subroutine skipReadLines(unitNum,numLines)
+		integer,intent(in) :: unitNum,numLines
+
+		do i=1,numLines
+			read(unitNum,*)
+		end do
+	end subroutine skipReadLines
+
 !-----------------------------------------------------------------------!
 !	End of mathematical operation routines
 !-----------------------------------------------------------------------!

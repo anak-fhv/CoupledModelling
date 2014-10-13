@@ -164,64 +164,81 @@ module problem
 		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
 		character(72) :: mFileName
 
-		call readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
-		rtBeta = rtKappa + rtSigma
+		call readRtData(mFileName,mBinNum)
 		rtIterNum = 1
 		do mainCtr = 1,rtIterNum
 			if(mainCtr .eq. 1) then
-				call rtInit(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+				call rtInit(mFileName,mBinNum)
 				allocate(pRatio(1))
 				pRatio = (/1.d0/)
 				rtRefRayPow = 0.355/rtNumRays	! Hard coded, needs to change
+				rtBeta = rtKappa + rtSigma
 				rtAbsThr = rtKappa/rtBeta
-				rtReEmThr = 0.95d0
 				call traceFromSurfLED(pRatio)
 			end if
 		end do	
 	end subroutine rtLED
 
-	subroutine readRtData(mBinNum,mSfConstTs,mSfConstQs,mFileName)
+	subroutine readRtData(mBinNum,mFileName)
 		integer,parameter :: rtDatFileNum=102
-		integer :: i,nEmSfs,nConstTSfs,nConstQSfs,nTrSfs,nNonPartSfs,	&
-		mBinNum(3)
-		real(8),allocatable :: mSfConstTs(:),mSfConstQs(:)
+		integer :: mBinNum(3)
 		character(*),parameter :: rtProbDatFile='../data/ledData.dat'		
 		character(72) :: mFileName
 
 		open(rtDatFileNum,file=rtProbDatFile)
 		read(rtDatFileNum,*)
+		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mFileName
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mBinNum
 		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtKappa
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtSigma
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtRefrInd
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtReEmThr
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtMCNumRays
+
+		call skipReadLines(rtDatFileNum,3)
+
 		read(rtDatFileNum,*) rtNumEmSfs
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumCTSfs
+		read(rtDatFileNum,*) rtNumCTEmSfs
 		if(rtNumCTSfs .gt. 0) then
-			allocate(rtConstTSfIds(rtNumCTSfs))
-			allocate(mSfConstTs(rtNumCTSfs))
+			allocate(rtConstTSfIds(rtNumCTEmSfs))
+			allocate(rtCTEmSfVals(rtNumCTEmSfs))
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtConstTSfIds
+			read(rtDatFileNum,*) rtCTEmSfIds
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) mSfConstTs
+			read(rtDatFileNum,*) rtCTEmSfVals
 		else
-			do i=1,4
-				read(rtDatFileNum,*)
-			end do
+			call skipReadLines(rtDatFileNum,4)
 		end if
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumCQSfs
+		read(rtDatFileNum,*) rtNumCQEmSfs
 		if(rtNumCQSfs .gt. 0) then
-			allocate(rtConstQSfIds(rtNumCQSfs))
-			allocate(mSfConstQs(rtNumCQSfs))
+			allocate(rtConstQSfIds(rtNumCQEmSfs))
+			allocate(rtCQEmSfVals(rtNumCQEmSfs))
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtConstQSfIds
+			read(rtDatFileNum,*) rtCQEmSfIds
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) mSfConstQs
+			read(rtDatFileNum,*) rtCQEmSfVals
 		else
-			do i=1,4
-				read(rtDatFileNum,*)
-			end do
+			call skipReadLines(rtDatFileNum,4)
+		end if
+
+		call skipReadLines(rtDatFileNum,3)
+
+		read(rtDatFileNum,*) rtNumBBSfs
+		if(rtNumBBSfs .gt. 0) then
+			allocate (rtBBSfIds(rtNumBBSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtBBSfIds
+		else
+			call skipReadLines(rtDatFileNum,2)
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumTrSfs
@@ -230,29 +247,19 @@ module problem
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtTrSfIds
 		else
-			do i=1,2
-				read(rtDatFileNum,*)
-			end do
+			call skipReadLines(rtDatFileNum,2)
 		end if
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumNpSfs
-		if(rtNumNpSfs .gt. 0) then
-			allocate (rtNpSfIds(rtNumNpSfs))
+		read(rtDatFileNum,*) rtNumNPSfs
+		if(rtNumTrSfs .gt. 0) then
+			allocate (rtNPSfIds(rtNumNPSfs))
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtNpSfIds
+			read(rtDatFileNum,*) rtNPSfIds
 		else
-			do i=1,2
-				read(rtDatFileNum,*)
-			end do
+			call skipReadLines(rtDatFileNum,2)
 		end if
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtKappa
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtSigma
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtRefrInd
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumRays
+
 		close(rtDatFileNum)
 	end subroutine readRtData
 
