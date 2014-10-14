@@ -889,7 +889,7 @@ module fem
 		end if
 		write(resFid,'(a)')""
 		write(resFid,'(a,2x,i8)')"POINT_DATA ",meshNumNodes
-		write(resFid,'(a)')"SCALARS temperature double"
+		write(resFid,'(a)')"SCALARS T(K) double"
 		write(resFid,'(a)')"LOOKUP_TABLE default"
 		do i=1,meshNumNodes
 			write(resFid,*) femTvals(i)

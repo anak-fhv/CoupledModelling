@@ -64,7 +64,7 @@ module problem
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mSfConstTs
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*) rtMCNumRays
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtKappa
 		read(rtDatFileNum,*)
@@ -83,7 +83,7 @@ module problem
 				end do
 				pRatio(nConstTSfs) = 1.0d0
 				write(*,*) "pRatio: ", pRatio
-				rtRefRayPow = sigB*totEmPow*emSurfArea/rtNumRays
+				rtRefRayPow = sigB*totEmPow*emSurfArea/rtMCNumRays
 				write(*,*) "rayPow: ", rayPow
 				call traceFromSurf(pRatio)
 				rtElemSto = rtElemAbs
@@ -128,7 +128,7 @@ module problem
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mSfConstTs
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*) rtMCNumRays
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtKappa
 		read(rtDatFileNum,*)
@@ -147,7 +147,7 @@ module problem
 				end do
 				pRatio(nConstTSfs) = 1.0d0
 				write(*,*) "pRatio: ", pRatio
-				rtRefRayPow = sigB*totEmPow*emSurfArea/rtNumRays
+				rtRefRayPow = sigB*totEmPow*emSurfArea/rtMCNumRays
 				write(*,*) "rayPow: ", rayPow
 			end if
 			call traceOut(pRatio)
@@ -171,7 +171,7 @@ module problem
 				call rtInit(mFileName,mBinNum)
 				allocate(pRatio(1))
 				pRatio = (/1.d0/)
-				rtRefRayPow = 0.355/rtNumRays	! Hard coded, needs to change
+				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
 				rtBeta = rtKappa + rtSigma
 				rtAbsThr = rtKappa/rtBeta
 				call traceFromSurfLED(pRatio)
@@ -179,13 +179,37 @@ module problem
 		end do	
 	end subroutine rtLED
 
-	subroutine readRtData(mBinNum,mFileName)
-		integer,parameter :: rtDatFileNum=102
-		integer :: mBinNum(3)
-		character(*),parameter :: rtProbDatFile='../data/ledData.dat'		
+	subroutine rtFEMLED()
+		integer :: i,mainCtr,rtIterNum,mBinNum(3)
+		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
 		character(72) :: mFileName
 
-		open(rtDatFileNum,file=rtProbDatFile)
+		call readRtData(mFileName,mBinNum)
+		rtIterNum = 1
+		do mainCtr = 1,rtIterNum
+			if(mainCtr .eq. 1) then
+				call rtInit(mFileName,mBinNum)
+				allocate(pRatio(1))
+				pRatio = (/1.d0/)
+				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
+				rtBeta = rtKappa + rtSigma
+				rtAbsThr = rtKappa/rtBeta
+				call traceFromSurfLED(pRatio)
+			end if
+			call setMeshNodalValues(rtNodalSrc,"S")
+			rtNodalSrc = 0.d0
+			call readFEMData(mFileName)
+			call runFem(mFileName)
+		end do
+	end subroutine rtFEMLED
+
+	subroutine readRtData(mFileName,mBinNum)
+		integer,parameter :: rtDatFileNum=102
+		integer :: mBinNum(3)
+		character(*),parameter :: rtDatFile='../data/ledRtData.dat'		
+		character(72) :: mFileName
+
+		open(rtDatFileNum,file=rtDatFile)
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mFileName
@@ -207,8 +231,8 @@ module problem
 		read(rtDatFileNum,*) rtNumEmSfs
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumCTEmSfs
-		if(rtNumCTSfs .gt. 0) then
-			allocate(rtConstTSfIds(rtNumCTEmSfs))
+		if(rtNumCTEmSfs .gt. 0) then
+			allocate(rtCTEmSfIds(rtNumCTEmSfs))
 			allocate(rtCTEmSfVals(rtNumCTEmSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtCTEmSfIds
@@ -219,8 +243,8 @@ module problem
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumCQEmSfs
-		if(rtNumCQSfs .gt. 0) then
-			allocate(rtConstQSfIds(rtNumCQEmSfs))
+		if(rtNumCQEmSfs .gt. 0) then
+			allocate(rtCQEmSfIds(rtNumCQEmSfs))
 			allocate(rtCQEmSfVals(rtNumCQEmSfs))
 			read(rtDatFileNum,*)
 			read(rtDatFileNum,*) rtCQEmSfIds
@@ -251,17 +275,41 @@ module problem
 		end if
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtNumNPSfs
-		if(rtNumTrSfs .gt. 0) then
-			allocate (rtNPSfIds(rtNumNPSfs))
+		if(rtNumNpSfs .gt. 0) then
+			allocate (rtNpSfIds(rtNumNpSfs))
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtNPSfIds
+			read(rtDatFileNum,*) rtNpSfIds
 		else
 			call skipReadLines(rtDatFileNum,2)
 		end if
-		read(rtDatFileNum,*)
 
 		close(rtDatFileNum)
 	end subroutine readRtData
+
+	subroutine readFEMData(mFileName)
+		integer,parameter :: femDatFileNum=103
+		character(*),parameter :: femDatFile='../data/ledFemData.dat'		
+		character(72) :: mFileName
+
+		open(femDatFileNum,file=femDatFile)
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) mFileName
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) femByFile
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) femResFile
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) femTransient
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) femSolverMaxIter
+		read(femDatFileNum,*)
+		read(femDatFileNum,*) femSolverType
+		if(femTransient) then
+			read(femDatFileNum,*)
+			read(femDatFileNum,*) femTrScheme			
+		end if
+
+	end subroutine readFEMData
 
 	subroutine rtFemSimple()
 		integer,parameter :: rtDatFileNum=101,femProbFilNum=102
@@ -295,31 +343,12 @@ module problem
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) mSfConstTs
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumRays
+		read(rtDatFileNum,*) rtMCNumRays
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtKappa
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtSigma
 		close(rtDatFileNum)
-
-!	Read FEM data
-		open(femProbFilNum,file=femProbFile)
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) mFileName
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) femByFile
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) femResFile
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) femTransient
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) femSolverMaxIter
-		read(femProbFilNum,*)
-		read(femProbFilNum,*) femSolverType
-		if(femTransient) then
-			read(femProbFilNum,*)
-			read(femProbFilNum,*) femTrScheme			
-		end if
 
 		tempFileName = femResFile
 
@@ -339,7 +368,7 @@ module problem
 				end do
 				pRatio(nConstTSfs) = 1.0d0
 				write(*,*) "pRatio: ", pRatio
-				rtRefRayPow = sigB*totEmPow*emSurfArea/rtNumRays
+				rtRefRayPow = sigB*totEmPow*emSurfArea/rtMCNumRays
 				write(*,*) "rayPow: ", rtRefRayPow
 				call traceFromSurf(pRatio)
 				rtElemSto = rtElemAbs

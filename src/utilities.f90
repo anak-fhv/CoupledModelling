@@ -351,6 +351,7 @@ module utilities
 	end subroutine triDiagonalSolver
 
 	subroutine skipReadLines(unitNum,numLines)
+		integer :: i
 		integer,intent(in) :: unitNum,numLines
 
 		do i=1,numLines
