@@ -15,7 +15,7 @@ module rt
 !	Module variables
 	integer,parameter :: rtNumPFTable=10000,rtElemMinRays=5
 	integer :: rtMCNumRays,rtNumEmSfs,rtNumCTEmSfs,rtNumCQEmSfs,		&
-	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs
+	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs,rtLimOutPts,rtLimReEmDrops
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:)
@@ -64,6 +64,11 @@ module rt
 		rtWallInf = 0
 		rtWallSrc = 0.0d0
 		rtNodalSrc = 0.0d0
+		rtLimOutPts = nint(2.5d-6*real(rtMCNumRays,8))
+		write(*,*) "rtLimOutPts: ",rtLimOutPts
+		rtLimReEmDrops = nint(2.d-6*real(rtMCNumRays,8))
+		write(*,*) "rtLimReEmDrops: ",rtLimReEmDrops
+
 		call CreateUniformEmissionSurfaces()
 	end subroutine rtInit
 
@@ -78,9 +83,8 @@ module rt
 	end subroutine rtInitMesh
 
 	subroutine traceFromSurfLED(pRatio)
-		integer,parameter :: limOutPt=5,limDropPt=5,nSfEmFil=191,		&
-		nSfAbFil=192,nScrIncs=193,nSctDirs=194,nReEmDrp=195,			&
-		nExitPts=196,lcYellow=6,lcBlue=3
+		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrIncs=193,	&
+		nSctDirs=194,nReEmDrp=195,nExitPts=196,lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
 		lambda,elNodes(4)
 		real(8) :: scrLoc=3.d0
@@ -104,6 +108,7 @@ module rt
 		outPtCt = 0
 		reEmDropCt = 0
 		rtNodalSrc = 0.0d0
+
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/100).eq.0) write(*,*) "Ray: ", i
 !			write(*,*) "Ray: ", i
@@ -139,7 +144,7 @@ module rt
 						write(*,*) "Point dropped in ReEm loop: ", i
 						write(nReEmDrp,'(3(e16.9,2x),i8)') pt,i
 						reEmDropCt = reEmDropCt + 1
-						if(reEmDropCt .gt. limDropPt) then
+						if(reEmDropCt .gt. rtLimReEmDrops) then
 							write(*,*) "Too many points dropped in reEmission."
 							stop
 						end if
@@ -256,7 +261,7 @@ module rt
 
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
 	nScrIncs)
-		integer,parameter :: limOutPt=5
+!		integer,parameter :: limOutPt=5
 		integer,intent(in) :: lambda,nExitPts,nScrIncs
 		integer,intent(inout) :: outPtCt
 		real(8),parameter :: scrDist=3.d0
@@ -266,7 +271,7 @@ module rt
 
 		if(outPt) then
 			outPtCt = outPtCt + 1
-			if(outPtCt .gt. limOutPt) then
+			if(outPtCt .gt. rtLimOutPts) then
 				write(*,*)"Count of out points reached limit."
 				stop
 			end if

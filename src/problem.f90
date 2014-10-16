@@ -201,6 +201,7 @@ module problem
 			call readFEMData(mFileName)
 			call runFem(mFileName)
 		end do
+		call binScreenPoints()
 	end subroutine rtFEMLED
 
 	subroutine readRtData(mFileName,mBinNum)
@@ -399,5 +400,57 @@ module problem
 		allocate(avSrc(meshNumNodes))
 		avSrc = rtNodalSrc*expAvFact + oldSrc*(1.0d0-expAvFact)
 	end subroutine getAveragedSource
+
+	subroutine binScreenPoints()
+		integer,parameter :: nScrIncs=151,nScrBins=152,lcYellow=6,		&
+		lcBlue=3,nBins=100
+		integer :: i,nLines,error,lambda,bLocs(2)
+		integer,allocatable :: bY(:,:),bB(:,:)
+		real(8) :: pt(3),edges(3)
+		real(8),parameter :: scrMin(3) = (/-5.d0,-5d0,-5.d0/),			&
+							 scrMax(3) = (/5.d0,5d0,5.d0/)
+		character(*),parameter :: fSfEmPts=commResDir//"scrIncs.out",	&
+								  fScPtsBin=commResDir//"scrBins.out"
+
+		open(nScrIncs,file=fSfEmPts)
+		do
+			read(nScrIncs,*, iostat = error)
+			if (error .lt. 0) exit
+			nLines = nLines + 1
+		end do
+		close(nScrIncs)
+
+		write(*,*) "nLines: ", nLines
+		edges = scrMax - scrMin
+		allocate(bY(nBins,nBins))
+		allocate(bB(nBins,nBins))
+		bY = 0
+		bB = 0
+		open(nScrIncs,file=fSfEmPts)
+		do i=1,nLines
+			read(nScrIncs,'(3(e16.9,2x),i2)') pt,lambda
+			bLocs = ceiling(((pt(1:2)-scrMin(1:2))/edges(1:2))*nBins)
+			where(bLocs == 0)
+				bLocs = 1
+			end where
+			if((bLocs(1).gt.0).and.(bLocs(2).gt.0)) then
+				if((bLocs(1).le.nBins).and.(bLocs(2).le.nBins)) then
+					if(lambda .eq. lcYellow) bY(bLocs(1),bLocs(2)) = 	&
+					bY(bLocs(1),bLocs(2)) + 1
+					if(lambda .eq. lcBlue) bB(bLocs(1),bLocs(2)) = 		&
+					bB(bLocs(1),bLocs(2)) + 1
+				end if
+			end if
+		end do
+		close(nScrIncs)
+
+		open(nScrBins,file=fScPtsBin)
+		do i=1,100
+			write(nScrBins,'(100(i8,2x))') bY(i,:)
+			write(nScrBins,'(100(i8,2x))') bB(i,:)
+		end do
+		close(nScrBins)
+
+	end subroutine binScreenPoints
 
 end module problem
