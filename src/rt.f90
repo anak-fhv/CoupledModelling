@@ -64,7 +64,7 @@ module rt
 		rtWallInf = 0
 		rtWallSrc = 0.0d0
 		rtNodalSrc = 0.0d0
-		rtLimOutPts = nint(2.5d-6*real(rtMCNumRays,8))
+		rtLimOutPts = nint(5.0d-6*real(rtMCNumRays,8))
 		write(*,*) "rtLimOutPts: ",rtLimOutPts
 		rtLimReEmDrops = nint(2.d-6*real(rtMCNumRays,8))
 		write(*,*) "rtLimReEmDrops: ",rtLimReEmDrops
@@ -84,7 +84,8 @@ module rt
 
 	subroutine traceFromSurfLED(pRatio)
 		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrIncs=193,	&
-		nSctDirs=194,nReEmDrp=195,nExitPts=196,lcYellow=6,lcBlue=3
+		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,lcYellow=6,	&
+		lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
 		lambda,elNodes(4)
 		real(8) :: scrLoc=3.d0
@@ -97,7 +98,8 @@ module rt
 								  fSctDirs=commResDir//"sctDirs.out",	&
 								  fReEmDrp=commResDir//"reEmDrp.out",	&
 								  fExitPts=commResDir//"exitPts.out",	&
-								  fScrIncs=commResDir//"scrIncs.out"
+								  fScrIncs=commResDir//"scrIncs.out",	&
+								  fOutPts=commResDir//"outPts.out"
 
 		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
@@ -105,12 +107,13 @@ module rt
 		open(nSctDirs,file=fSctDirs)
 		open(nReEmDrp,file=fReEmDrp)
 		open(nExitPts,file=fExitPts)
+		open(nOutPts,file=fOutPts,position='append')
 		outPtCt = 0
 		reEmDropCt = 0
 		rtNodalSrc = 0.0d0
 
 		do i=1,rtMCNumRays
-			if(mod(i,rtMCNumRays/100).eq.0) write(*,*) "Ray: ", i
+			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
 !			write(*,*) "Ray: ", i
 			lambda = lcBlue
 			reEmCt = 0
@@ -168,11 +171,20 @@ module rt
 		if(reEmDropCt .eq. 0) then
 			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
 		end if
+		write(*,'(a,2x,i3)') "Number of out of face points: ", outPtCt
+		close(nSfEmFil)
+		close(nSfAbFil)
+		close(nScrIncs)
+		close(nSctDirs)
+		close(nReEmDrp)
+		close(nExitPts)
+		close(nOutPts)
 	end subroutine traceFromSurfLED
 
 	subroutine traceRayWithTrans(rN,pt,dir,pL,stEl,outPt,vExit,endEl,	&
 	endPt,dirOut)
-		integer :: i,rayIterCt,nhbrFc,cEl,newFc,elNodes(4)
+		integer,parameter :: nOutPtFile=197
+		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,elNodes(4)
 		integer,intent(in) :: stEl,rN
 		integer,intent(out) :: endEl
 		real(8) :: lTrav,lToFc,newDir(3),ec(4,3)
@@ -202,8 +214,8 @@ module rt
 !	Initialise the face-check values
 			elNodes = meshElems(cEl)%nodes
 			ec = meshVerts(elNodes,:)
-			pt = pt + PICO*dir
-			lTrav = lTrav+PICO
+			pt = pt + DPICO*dir
+			lTrav = lTrav+DPICO
 			call getNextFace(ec,pt,dir,newFc,lToFc)
 			lTrav = lTrav + lToFc
 			if(lTrav.ge.pL) then
@@ -217,6 +229,15 @@ module rt
 			if(.not. inFc) then
 				write(*,*) "Point traced not within face."
 				write(*,*) "Elnum: ",cEl, "Raynum: ",rN
+				write(nOutPtFile,'(a)') "Element, face and length: "
+				write(nOutPtFile,'(i8,2x,i2,2x,f16.9)') cEl,newFc,lToFc
+				write(nOutPtFile,'(a)') "Point and direction: "
+				write(nOutPtFile,'(3(f16.9))') pt
+				write(nOutPtFile,'(3(f16.9))') dir
+				write(nOutPtFile,'(a)') "Element coords: "
+				do noNum=1,4
+					write(nOutPtFile,'(3(f16.9))') ec(noNum,:)
+				end do
 				outPt = .true.
 				vExit = .true.
 				exit
@@ -888,8 +909,8 @@ module rt
 		do while(lTrav.lt.pL)
 			elNodes = meshElems(cEl)%nodes
 			ec = meshVerts(elNodes,:)
-			pt = pt + PICO*dir
-			lTrav = lTrav+PICO
+			pt = pt + DPICO*dir
+			lTrav = lTrav+DPICO
 			chCt = 0
 			if(rayIterCt .gt. MEGA) then
 				outPt = .true.

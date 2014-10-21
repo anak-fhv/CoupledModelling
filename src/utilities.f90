@@ -4,7 +4,7 @@ module utilities
 
 	real(8),parameter :: pi=3.14159265358979d0,sigB=5.673d-8,			&
 	LARGE=1.0d3,MEGA=1.0d6,GIGA=1.0d9,SMALL=1.0d-3,MICRO=1.0d-6,		&
-	NANO=1.0d-9,PICO=1.0d-12
+	NANO=1.0d-9,ANGSTROM=1.d-10,PICO=1.0d-12,DPICO=1.d-13
 	character(*),parameter :: commDatDir="../data/",					&
 	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
 	commOutExt=".out",commVTKExt=".vtk"
