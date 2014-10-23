@@ -201,7 +201,6 @@ module problem
 			call readFEMData(mFileName)
 			call runFem(mFileName)
 		end do
-		call binScreenPoints()
 	end subroutine rtFEMLED
 
 	subroutine readRtData(mFileName,mBinNum)
@@ -401,14 +400,14 @@ module problem
 		avSrc = rtNodalSrc*expAvFact + oldSrc*(1.0d0-expAvFact)
 	end subroutine getAveragedSource
 
-	subroutine binScreenPoints()
+	subroutine binScreenPoints(nBins,scrMin,scrMax)
 		integer,parameter :: nScrIncs=151,nScrBins=152,lcYellow=6,		&
-		lcBlue=3,nBins=100
+		lcBlue=3
+		integer,intent(in) :: nBins
 		integer :: i,nLines,error,lambda,bLocs(2)
 		integer,allocatable :: bY(:,:),bB(:,:)
 		real(8) :: pt(3),edges(3)
-		real(8),parameter :: scrMin(3) = (/-5.d0,-5d0,-5.d0/),			&
-							 scrMax(3) = (/5.d0,5d0,5.d0/)
+		real(8),intent(in) :: scrMin(3),scrMax(3)
 		character(*),parameter :: fSfEmPts=commResDir//"scrIncs.out",	&
 								  fScPtsBin=commResDir//"scrBins.out"
 
@@ -429,10 +428,7 @@ module problem
 		open(nScrIncs,file=fSfEmPts)
 		do i=1,nLines
 			read(nScrIncs,'(3(e16.9,2x),i2)') pt,lambda
-			bLocs = ceiling(((pt(1:2)-scrMin(1:2))/edges(1:2))*nBins)
-			where(bLocs == 0)
-				bLocs = 1
-			end where
+			bLocs = nint(((pt(1:2)-scrMin(1:2))/edges(1:2))*nBins)
 			if((bLocs(1).gt.0).and.(bLocs(2).gt.0)) then
 				if((bLocs(1).le.nBins).and.(bLocs(2).le.nBins)) then
 					if(lambda .eq. lcYellow) bY(bLocs(1),bLocs(2)) = 	&
@@ -445,9 +441,9 @@ module problem
 		close(nScrIncs)
 
 		open(nScrBins,file=fScPtsBin)
-		do i=1,100
-			write(nScrBins,'(100(i8,2x))') bY(i,:)
-			write(nScrBins,'(100(i8,2x))') bB(i,:)
+		do i=1,nBins
+			write(nScrBins,'(<nBins>(i8,2x))') bY(i,:)
+			write(nScrBins,'(<nBins>(i8,2x))') bB(i,:)
 		end do
 		close(nScrBins)
 

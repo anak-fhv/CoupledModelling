@@ -14,6 +14,8 @@ program runModel
 !	call rtFemSimple()
 !	call rtLED()
 	call rtFEMLED()
+	call binScreenPoints(25,(/-10.d0,-10.d0,-10.d0/),(/10.d0,10.d0,10.d0/))
+
 	call date_and_time(date,time,zone,values2)
 	write(*,'(a,(3i8,2x),i8)') "End time: ",values2(5:8)
 	write(*,'(a,(3i8,2x),i8)') "Runtime: ",values2(5:8)-values1(5:8)
