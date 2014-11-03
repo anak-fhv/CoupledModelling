@@ -9,12 +9,14 @@ program runModel
 
 	call date_and_time(date,time,zone,values1)
 	write(*,'(a,(3i8,2x),i8)') "Start time: ", values1(5:8)
+
 !	call rtSimple()
 !	call femSimple()
 !	call rtFemSimple()
 !	call rtLED()
 	call rtFEMLED()
-	call binScreenPoints(25,(/-10.d0,-10.d0,-10.d0/),(/10.d0,10.d0,10.d0/))
+	call binScreenPoints(25,(/-3.d0,-3.d0,-3.d0/),(/3.d0,3.d0,3.d0/))
+!	call prepRtGen()
 
 	call date_and_time(date,time,zone,values2)
 	write(*,'(a,(3i8,2x),i8)') "End time: ",values2(5:8)

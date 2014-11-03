@@ -750,6 +750,12 @@ module rt
 		dir = dir/norm2(dir)
 	end function getDirectionCoords
 
+	function getRayPathIntegral() result(pInt)
+		real(8) :: rBeta,pInt
+
+		call random_number(rBeta)
+		pInt = log(1.d0/rBeta)
+	end function getRayPathIntegral
 !------------------------------------------------------------------------
 !	Ray tracing routines for 1-D gray medium without transmission lie
 !	hereon. These are not used for the LED case

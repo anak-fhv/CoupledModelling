@@ -148,7 +148,6 @@ module mesh
 			meshSurfs(i)%numFcs = numSfFaces
 			meshSurfs(i)%sfName = surfName
 			l = (verify('iface',surfName) .ne. 0)
-!			l = l .and. (verify('bic',surfName) .ne. 0)
 			allocate(meshSurfs(i)%elNum(numSfFaces))
 			allocate(meshSurfs(i)%fcNum(numSfFaces))
 			if(mod(numSfFaces,5) == 0) then
@@ -265,7 +264,7 @@ module mesh
 !	end subroutine binElements
 
 	subroutine binElements(elBins)
-		integer :: i,j,k,sz,maxPerBin,endPt,check,cRs(3),elNodes(4),num_threads
+		integer :: i,j,k,sz,maxPerBin,endPt,check,cRs(3),elNodes(4)
 		integer,allocatable :: temp(:),lZ(:,:,:)
 		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
 		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)

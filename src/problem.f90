@@ -203,6 +203,14 @@ module problem
 		end do
 	end subroutine rtFEMLED
 
+	subroutine prepRtGen()
+		integer :: mBinNum(3)
+		character(72) :: mFileName
+
+		call readRtData(mFileName,mBinNum)
+		call rtInitMesh(mFileName,mBinNum)
+	end subroutine prepRtGen
+
 	subroutine readRtData(mFileName,mBinNum)
 		integer,parameter :: rtDatFileNum=102
 		integer :: mBinNum(3)
