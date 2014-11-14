@@ -100,65 +100,6 @@ module problem
 	end subroutine rtSimple
 
 
-	subroutine rtReEmission()
-		integer,parameter :: rtDatFileNum=102
-		integer :: i,mainCtr,rtIterNum,nConstTSfs,mBinNum(3)
-		integer,allocatable :: mConstTSfIds(:)
-		real(8) :: totEmPow,rayPow,emSurfArea
-		real(8),allocatable :: pRatio(:),mSfConstTs(:)
-		character(*),parameter :: rtProbDatFile='../data/probData.dat'
-		character(72) :: mFileName
-
-!	Some hard coded values still exist
-		rtIterNum = 80
-		emSurfArea = 4.0d0
-!	Need to rid ourselves of these pesky constants
-
-		open(rtDatFileNum,file=rtProbDatFile)
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) mFileName
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) mBinNum
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) nConstTSfs
-		allocate(rtEmSfIds(nConstTSfs))
-		allocate(mSfConstTs(nConstTSfs))
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtEmSfIds
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) mSfConstTs
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtMCNumRays
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtKappa
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtSigma
-		close(rtDatFileNum)
-
-		do mainCtr = 1,rtIterNum
-			if(mainCtr .eq. 1) then
-!				call rtInitMesh(mFileName,mBinNum,mConstTSfIds,			&
-!				mSfConstTs)
-				nConstTSfs = size(mSfConstTs,1)
-				allocate(pRatio(nConstTSfs))
-				totEmPow = sum(mSfConstTs**4.0d0)
-				do i=1,nConstTSfs-1
-					pRatio(i) = sum(mSfConstTs(1:i)**4.0d0)/totEmPow
-				end do
-				pRatio(nConstTSfs) = 1.0d0
-				write(*,*) "pRatio: ", pRatio
-				rtRefRayPow = sigB*totEmPow*emSurfArea/rtMCNumRays
-				write(*,*) "rayPow: ", rayPow
-			end if
-			call traceOut(pRatio)
-			rtElemSto = rtElemAbs
-			rtElemAbs = 0
-			write(*,'(a,2x,i4)')"Main iteration number: ", mainCtr
-			write(*,'(a,2x,i8)')"Absorbed numbers: ", sum(rtElemSto)
-		end do
-
-	end subroutine rtReEmission
-
 	subroutine rtLED()
 		integer :: i,mainCtr,rtIterNum,mBinNum(3)
 		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
@@ -206,12 +147,122 @@ module problem
 	subroutine prepRtGen()
 		integer :: mBinNum(3)
 		character(72) :: mFileName
+		real(8),allocatable :: pRatio(:)
 
 		call readRtData(mFileName,mBinNum)
-		call rtInitMesh(mFileName,mBinNum)
+		call rtInit(mFileName,mBinNum)
+		allocate(pRatio(1))
+		pRatio = (/1.d0/)
+		rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
+		rtBeta = rtKappa + rtSigma
+		rtAbsThr = rtKappa/rtBeta
+		call traceFromSurfLED(pRatio)
 	end subroutine prepRtGen
 
 	subroutine readRtData(mFileName,mBinNum)
+		integer,parameter :: rtDatFileNum=102
+		integer :: mBinNum(3)
+		character(*),parameter :: rtDatFile='../data/ledRtMultiDomData.dat'		
+		character(72) :: mFileName
+
+		open(rtDatFileNum,file=rtDatFile)
+		call skipReadLines(rtDatFileNum,2)
+		read(rtDatFileNum,*) mFileName
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) mBinNum
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtMCNumRays
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtfResPre
+
+		call skipReadLines(rtDatFileNum,3)
+		read(rtDatFileNum,*) meshNumDoms
+		if(.not.(allocated(rtKappa))) allocate(rtKappa(meshNumDoms))
+		if(.not.(allocated(rtSigma))) allocate(rtSigma(meshNumDoms))
+		if(.not.(allocated(rtRefrInd))) allocate(rtRefrInd(meshNumDoms))
+		if(.not.(allocated(rtReEmThr))) allocate(rtReEmThr(meshNumDoms))
+		if(.not.(allocated(rtBeta))) allocate(rtBeta(meshNumDoms))
+		if(.not.(allocated(rtAbsThr))) allocate(rtAbsThr(meshNumDoms))
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtKappa
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtSigma
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtRefrInd
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtReEmThr
+
+		call skipReadLines(rtDatFileNum,3)
+		read(rtDatFileNum,*) rtNumEmSfs
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumCTEmSfs
+		if(rtNumCTEmSfs .gt. 0) then
+			allocate(rtCTEmSfIds(rtNumCTEmSfs))
+			allocate(rtCTEmSfVals(rtNumCTEmSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtCTEmSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtCTEmSfVals
+		else
+			call skipReadLines(rtDatFileNum,4)
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumCQEmSfs
+		if(rtNumCQEmSfs .gt. 0) then
+			allocate(rtCQEmSfIds(rtNumCQEmSfs))
+			allocate(rtCQEmSfVals(rtNumCQEmSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtCQEmSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtCQEmSfVals
+		else
+			call skipReadLines(rtDatFileNum,4)
+		end if
+
+		call skipReadLines(rtDatFileNum,3)
+		read(rtDatFileNum,*) rtNumBBSfs
+		if(rtNumBBSfs .gt. 0) then
+			allocate (rtBBSfIds(rtNumBBSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtBBSfIds
+		else
+			call skipReadLines(rtDatFileNum,2)
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumTrSfs
+		if(rtNumTrSfs .gt. 0) then
+			allocate (rtTrSfIds(rtNumTrSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtTrSfIds
+		else
+			call skipReadLines(rtDatFileNum,2)
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumNPSfs
+		if(rtNumNpSfs .gt. 0) then
+			allocate (rtNpSfIds(rtNumNpSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtNpSfIds
+		else
+			call skipReadLines(rtDatFileNum,2)
+		end if
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumAbsSfs
+		if(rtNumAbsSfs .gt. 0) then
+			allocate (rtAbsSfIds(rtNumAbsSfs))
+			allocate (rtAbsSfVals(rtNumAbsSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtAbsSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtAbsSfVals
+		else
+			call skipReadLines(rtDatFileNum,4)
+		end if
+
+		close(rtDatFileNum)
+	end subroutine readRtData
+
+	subroutine readRtSingleDomData(mFileName,mBinNum)
 		integer,parameter :: rtDatFileNum=102
 		integer :: mBinNum(3)
 		character(*),parameter :: rtDatFile='../data/ledRtData.dat'		
@@ -292,7 +343,7 @@ module problem
 		end if
 
 		close(rtDatFileNum)
-	end subroutine readRtData
+	end subroutine readRtSingleDomData
 
 	subroutine readFEMData(mFileName)
 		integer,parameter :: femDatFileNum=103

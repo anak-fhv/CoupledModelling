@@ -15,14 +15,16 @@ module rt
 !	Module variables
 	integer,parameter :: rtNumPFTable=10000,rtElemMinRays=5
 	integer :: rtMCNumRays,rtNumEmSfs,rtNumCTEmSfs,rtNumCQEmSfs,		&
-	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs,rtLimOutPts,rtLimReEmDrops
+	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs,rtNumAbsSfs,rtLimOutPts,			&
+	rtLimReEmDrops
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
-	rtWallInf(:)
-	real(8) :: rtBeta,rtKappa,rtSigma,rtRefrInd,rtReEmThr,rtAbsThr,		&
-	rtRefRayPow
+	rtWallInf(:),rtAbsSfIds(:)
+	real(8) :: rtRefRayPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
-	rtCTEmSfVals(:),rtCQEmSfVals(:)
+	rtCTEmSfVals(:),rtCQEmSfVals(:),rtBeta(:),rtKappa(:),rtSigma(:),	&
+	rtRefrInd(:),rtReEmThr(:),rtAbsThr(:),rtAbsSfVals(:)
+	character(16) :: rtfResPre
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
@@ -82,207 +84,8 @@ module rt
 		call populateSurfaceFaceAreas()
 	end subroutine rtInitMesh
 
-	subroutine traceFromSurfLED(pRatio)
-		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrIncs=193,	&
-		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,lcYellow=6,	&
-		lcBlue=3
-		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
-		lambda,elNodes(4)
-		real(8) :: scrLoc=3.d0
-		real(8) :: pL,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),		&
-		ptScr(3),spFnVals(4)
-		real(8),intent(in) :: pRatio(:)
-		logical :: outPt,vExit,scatter,reEmission
-		character(*),parameter :: fSfEmPts=commResDir//"surfems.out",	&
-								  fSfAbPts=commResDir//"surfpts.out",	&
-								  fSctDirs=commResDir//"sctDirs.out",	&
-								  fReEmDrp=commResDir//"reEmDrp.out",	&
-								  fExitPts=commResDir//"exitPts.out",	&
-								  fScrIncs=commResDir//"scrIncs.out",	&
-								  fOutPts=commResDir//"outPts.out"
-
-		open(nSfEmFil,file=fSfEmPts)
-		open(nSfAbFil,file=fSfAbPts)
-		open(nScrIncs,file=fScrIncs)
-		open(nSctDirs,file=fSctDirs)
-		open(nReEmDrp,file=fReEmDrp)
-		open(nExitPts,file=fExitPts)
-		open(nOutPts,file=fOutPts,position='append')
-		outPtCt = 0
-		reEmDropCt = 0
-		rtNodalSrc = 0.0d0
-
-		do i=1,rtMCNumRays
-			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
-!			write(*,*) "Ray: ", i
-			lambda = lcBlue
-			reEmCt = 0
-			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
-			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
-
-!			Tracing line
-			stEl = emEl
-100			call traceRayWithTrans(i,pt,dir,pL,stEl,outPt,vExit,endEl,	&
-			endPt,dirOut)
-!			Handle the exit of a ray from the volume
-			if(vExit) then
-				call handleExit(outPt,outPtCt,endPt,dirOut,lambda,		&
-				nExitPts,nScrIncs)
-				cycle
-			end if
-
-			call checkScatter(scatter)
-			if(scatter) then
-				pL = getRayPathLength()
-				pt = endPt
-				stEl = endEl
-				dir = scatterRayLargeSphereCloud()
-				write(nSctDirs,'(3(e16.9,2x))') dir
-				goto 100
-			else
-				call checkReemission(lambda,reEmission)
-				if(reEmission) then
-					reEmCt = reEmCt+1
-					if(reEmCt .gt. MEGA) then
-						write(*,*) "Point dropped in ReEm loop: ", i
-						write(nReEmDrp,'(3(e16.9,2x),i8)') pt,i
-						reEmDropCt = reEmDropCt + 1
-						if(reEmDropCt .gt. rtLimReEmDrops) then
-							write(*,*) "Too many points dropped in reEmission."
-							stop
-						end if
-					end if
-					lambda = lcYellow
-					pL = getRayPathLength()
-					pt = endPt
-					stEl = endEl
-					dir = getRaySphDir()
-					goto 100
-				else
-					rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-					write(nSfAbFil,'(3(f15.12,2x))') endPt
-					call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
-					elNodes = meshElems(endEl)%nodes
-					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
-					rtRefRayPow*spFnVals
-				end if
-			end if
-		end do
-		if(reEmDropCt .eq. 0) then
-			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
-		end if
-		write(*,'(a,2x,i3)') "Number of out of face points: ", outPtCt
-		close(nSfEmFil)
-		close(nSfAbFil)
-		close(nScrIncs)
-		close(nSctDirs)
-		close(nReEmDrp)
-		close(nExitPts)
-		close(nOutPts)
-	end subroutine traceFromSurfLED
-
-	subroutine traceRayWithTrans(rN,pt,dir,pL,stEl,outPt,vExit,endEl,	&
-	endPt,dirOut)
-		integer,parameter :: nOutPtFile=197
-		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,elNodes(4)
-		integer,intent(in) :: stEl,rN
-		integer,intent(out) :: endEl
-		real(8) :: lTrav,lToFc,newDir(3),ec(4,3)
-		real(8),intent(in) :: pL
-		real(8),intent(out) :: endPt(3),dirOut(3)
-		real(8),intent(inout) :: pt(3),dir(3)
-		logical :: inFc,bbSfChk,trSfChk,npSfChk,trans
-		logical,intent(out) :: outPt,vExit
-
-		rayIterCt = 0
-		endEl = 0
-		cEl = stEl
-		endPt = 0.0d0
-		lTrav = 0.0d0
-		dirOut = 0.0d0
-		outPt = .false.
-		vExit = .false.
-		do while(lTrav.lt.pL)
-			if(rayIterCt .gt. MEGA) then
-				outPt = .true.
-				write(*,*)"Ray entered interminable loop"
-				exit					
-			end if
-			bbSfChk = .false.
-			trSfChk = .false.
-			npSfChk = .false.
-!	Initialise the face-check values
-			elNodes = meshElems(cEl)%nodes
-			ec = meshVerts(elNodes,:)
-			pt = pt + DPICO*dir
-			lTrav = lTrav+DPICO
-			call getNextFace(ec,pt,dir,newFc,lToFc)
-			lTrav = lTrav + lToFc
-			if(lTrav.ge.pL) then
-				pt = pt + (pL-(lTrav-lToFc))*dir
-				endEl = cEl
-				endPt = pt
-				exit
-			end if
-			pt = pt + lToFc*dir
-			inFc = checkNewPt(pt,dir,ec,newFc)
-			if(.not. inFc) then
-				write(*,*) "Point traced not within face."
-				write(*,*) "Elnum: ",cEl, "Raynum: ",rN
-				write(nOutPtFile,'(a)') "Element, face and length: "
-				write(nOutPtFile,'(i8,2x,i2,2x,f16.9)') cEl,newFc,lToFc
-				write(nOutPtFile,'(a)') "Point and direction: "
-				write(nOutPtFile,'(3(f16.9))') pt
-				write(nOutPtFile,'(3(f16.9))') dir
-				write(nOutPtFile,'(a)') "Element coords: "
-				do noNum=1,4
-					write(nOutPtFile,'(3(f16.9))') ec(noNum,:)
-				end do
-				outPt = .true.
-				vExit = .true.
-				exit
-			end if
-!	Check for neighbouring faces
-			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
-			if(nhbrFc .lt. 0) then
-				bbSfChk = (count(-nhbrFc==rtBBSfIds) .gt. 0)
-				trSfChk = (count(-nhbrFc==rtTrSfIds) .gt. 0)
-				npSfChk = (count(-nhbrFc==rtNPSfIds) .gt. 0)
-				if(bbSfChk) then
-					endEl = cEl
-					endPt = pt
-					dirOut = dir
-					vExit = .true.
-					lTrav = MEGA
-					exit					
-				end if
-				if(trSfChk) then
-					call transSurface(ec,newFc,dir,trans,newDir)
-					if(trans) then
-						endEl = cEl
-						endPt = pt
-						dirOut = newDir
-						lTrav = MEGA
-						vExit = .true.
-						exit
-					else
-						dir = newDir
-					end if
-				end if
-				if(npSfChk) then
-					newDir = specularReflection(ec,newFc,dir)
-					dir = newDir
-				end if
-			else
-				cEl = meshElems(cEl)%neighbours(newFc,1)
-				rayIterCt = rayIterCt + 1
-			end if
-		end do
-	end subroutine traceRayWithTrans
-
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
 	nScrIncs)
-!		integer,parameter :: limOutPt=5
 		integer,intent(in) :: lambda,nExitPts,nScrIncs
 		integer,intent(inout) :: outPtCt
 		real(8),parameter :: scrDist=3.d0
@@ -304,39 +107,6 @@ module rt
 			end if
 		end if
 	end subroutine handleExit
-
-	subroutine checkScatter(sctr)
-		real(8) :: rAbs
-		logical,intent(out) :: sctr
-
-		call random_number(rAbs)
-		if(rAbs .gt. rtAbsThr) then
-			sctr = .true.
-		else
-			sctr = .false.
-		end if
-	end subroutine checkScatter
-
-	subroutine checkReemission(lambda,reEmission)
-		integer,parameter :: lcYellow = 6
-		integer,intent(in) :: lambda
-		real(8) :: rReem
-		logical,intent(out) :: reEmission
-
-		reEmission = .false.
-		if(lambda .eq. lcYellow) then
-			reEmission = .true.
-			return
-		end if
-		call random_number(rReem)
-		if(rReem .lt. rtReEmThr) then
-			reEmission = .true.
-			return
-		else
-			reEmission = .false.
-			return
-		end if
-	end subroutine checkReemission
 
 	subroutine getNextFace(ec,pt,dir,newFc,lToFc)
 		integer :: fc,remNode,fcNodes(3)
@@ -377,25 +147,25 @@ module rt
 		inFc = insideFaceCheck(fcVerts,pt)
 	end function checkNewPt
 
-	subroutine startRayInVolume(emEl,pL,pt,dir)
+	subroutine startRayInVolume(emEl,pInt,pt,dir)
 		integer :: elNodes(4)
 		integer,intent(in) :: emEl
 		real(8) :: ec(4,3)
-		real(8),intent(out) :: pL,pt(3),dir(3)
+		real(8),intent(out) :: pInt,pt(3),dir(3)
 
 		elNodes = meshElems(emEl)%nodes
 		ec = meshVerts(elNodes,:)
 		pt = selTetraPoint(ec)
 		dir = getRaySphDir()
-		pL = getRayPathLength()
+		pInt = getRayPathIntegral()
 	end subroutine startRayInVolume
 
-	subroutine startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
+	subroutine startRayFromSurf(pRatio,emEl,emFc,pInt,pt,dir)
 		integer :: remNo,fcNodes(3),elNodes(4)
 		integer,intent(out) :: emEl,emFc
 		real(8) :: remVert(3),fcNorm(3),ec(4,3),fcVerts(3,3)
 		real(8),intent(in) :: pRatio(:)
-		real(8),intent(out) :: pL,pt(3),dir(3)
+		real(8),intent(out) :: pInt,pt(3),dir(3)
 
 		call chooseEmittingFace(pRatio,emEl,emFc)
 		elNodes = meshElems(emEl)%nodes
@@ -407,7 +177,7 @@ module rt
 		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
 		pt = selTriPoint(fcVerts)
 		dir = getFaceRayDir(fcVerts,fcNorm)
-		pL = getRayPathLength()
+		pInt = getRayPathIntegral()
 	end subroutine startRayFromSurf
 
 	subroutine chooseEmittingFace(pRatio,emEl,emFc)
@@ -433,60 +203,29 @@ module rt
 	end subroutine chooseEmittingFace
 
 	subroutine getEmFace(emSf,emEl,emFc)
-		integer :: i
+		integer :: i,ind1,ind2,sz
 		integer,intent(out) :: emEl,emFc
 		real(8):: psi
 		type(emissionSurface) :: emSf
 
 		call random_number(psi)
-	    if (psi > 0.5d0) then
-	        do i=size(emSf%cuSumFcEmPow,1)-1,1,-1
-	            if (emSf%cuSumFcEmPow(i) .lt. psi) exit
-	        end do
-	        emEl = emSf%emSurf%elNum(i+1)
-	        emFc = emSf%emSurf%fcNum(i+1)
-	    else           
-	        do i=1,size(emSf%cuSumFcEmPow,1)
-	            if (emSf%cuSumFcEmPow(i) .gt. psi) exit
-	        end do
-	        emEl = emSf%emSurf%elNum(i)
-	        emFc = emSf%emSurf%fcNum(i)
-	    end if
+		call bisLocReal(emSf%cuSumFcEmPow,psi,ind1,ind2)
+		emEl = emSf%emSurf%elNum(ind2)
+		emFc = emSf%emSurf%fcNum(ind2)
+!	    if (psi > 0.5d0) then
+!	        do i=size(emSf%cuSumFcEmPow,1)-1,1,-1
+!	            if (emSf%cuSumFcEmPow(i) .lt. psi) exit
+!	        end do
+!	        emEl = emSf%emSurf%elNum(i+1)
+!	        emFc = emSf%emSurf%fcNum(i+1)
+!	    else           
+!	        do i=1,size(emSf%cuSumFcEmPow,1)
+!	            if (emSf%cuSumFcEmPow(i) .gt. psi) exit
+!	        end do
+!	        emEl = emSf%emSurf%elNum(i)
+!	        emFc = emSf%emSurf%fcNum(i)
+!	    end if
 	end subroutine getEmFace
-
-	subroutine createEmissionSurfaces()
-		integer :: i,j,nEmSf,currSurf,nEmFcs,elNum,fcNum,fcNodes(3),	&
-		elNodes(4)
-		real(8) :: fcEmPow,fcArea,fcCentT,emSfPow,fcNoTs(3)
-
-		nEmSf = size(rtEmSfIds,1)
-		if(.not.(allocated(rtEmSurfs))) then
-			allocate(rtEmSurfs(nEmSf))
-		end if
-		do i=1,nEmSf
-			currSurf = rtEmSfIds(i)
-			rtEmSurfs(i)%emSurf = meshSurfs(currSurf)
-			nEmFcs = meshSurfs(currSurf)%numFcs
-			if(.not.(allocated(rtEmSurfs(i)%cuSumFcEmPow))) then
-				allocate(rtEmSurfs(i)%cuSumFcEmPow(nEmFcs))
-			end if
-			emSfPow = 0.d0
-			do j=1,nEmFcs
-				elNum = rtEmSurfs(i)%emSurf%elNum(j)
-				elNodes = meshElems(elNum)%nodes
-				fcNum = rtEmSurfs(i)%emSurf%fcNum(j)
-				fcArea = rtEmSurfs(i)%emSurf%fcArea(j)
-				fcNodes = getFaceNodes(fcNum)
-				fcNoTs = meshTemperatures(elNodes(fcNodes))
-				fcCentT = sum(fcNoTs)/3.0d0
-				fcEmPow = sigB*fcArea*(fcCentT**4.0d0)
-				emSfPow = emSfPow+fcEmPow
-				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfPow
-			end do
-			rtEmSurfs(i)%totEmPow = emSfPow
-			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
-		end do
-	end subroutine createEmissionSurfaces
 
 	subroutine createUniformEmissionSurfaces()
 		integer :: i,j,nEmSf,currSurf,nEmFcs,elNum,fcNum,fcNodes(3),	&
@@ -518,11 +257,6 @@ module rt
 			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
 		end do		
 	end subroutine createUniformEmissionSurfaces
-
-	subroutine createNonUniformEmissionSurface()
-!	Placeholder for future use in case of non-uniform surface 
-!	temperatures
-	end subroutine createNonUniformEmissionSurface
 
 	function scatterRayIsotropic() result(dir)
 		real(8) :: rth,rph,th,ph,dir(3)
@@ -565,8 +299,41 @@ module rt
 		dirOut = dirIn + 2.0d0*cosInc*fcNorm
 	end function specularReflection
 
-	subroutine transSurface(ec,fcNum,dirIn,trans,dirOut)
-		integer,intent(in) :: fcNum
+	subroutine transBetweenDoms(ec,fcNum,cDom,nhbrDom,dirIn,trans,dirOut)
+		integer,intent(in) :: fcNum,cDom,nhbrDom
+		integer :: remNo,fcNodes(3)
+		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
+		fcNorm(3),fcVerts(3,3)
+		real(8),intent(in) :: ec(4,3),dirIn(3)
+		real(8),intent(out):: dirOut(3)
+		logical,intent(out) :: trans
+
+		trans = .false.
+		fcNodes = getFaceNodes(fcNum)
+		remNo = 10-sum(fcNodes)
+		fcVerts = ec(fcNodes,:)
+		remVert = ec(remNo,:)
+		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
+		cosInc = -dot_product(dirIn,fcNorm)
+		if (cosInc .lt. 0.0d0) then
+            write(*,*) "change direction of normal"
+            cosInc = -cosInc
+            fcNorm = -fcNorm
+        end if
+		rIndRatio = (rtRefrInd(cDom)/rtRefrInd(nhbrDom))
+		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
+		if(trRatio .gt. 1.d0) then
+			dirOut = specularReflection(ec,fcNum,dirIn)
+		else
+			trans = .true.
+			sinTht = rIndRatio*sin(acos(cosInc))
+			dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
+			dirOut = dirOut + rIndRatio*dirIn
+		end if
+	end subroutine transBetweenDoms
+
+	subroutine transExit(ec,fcNum,cDom,dirIn,trans,dirOut)
+		integer,intent(in) :: fcNum,cDom
 		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
 		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
@@ -587,24 +354,17 @@ module rt
             cosInc = -cosInc
             fcNorm = -fcNorm
         end if
-		rIndRatio = (rtRefrInd/n2)
+		rIndRatio = (rtRefrInd(cDom)/n2)
 		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
 		if(trRatio .gt. 1.d0) then
 			dirOut = specularReflection(ec,fcNum,dirIn)
 		else
 			trans = .true.
 			sinTht = rIndRatio*sin(acos(cosInc))
-			dirOut = (rIndRatio*cosInc - sqrt(1.d0-sinTht**2.d0))*fcNorm
+			dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
 			dirOut = dirOut + rIndRatio*dirIn
 		end if
-	end subroutine transSurface
-
-	function getRayPathLength() result(pathLength)
-		real(8) :: randL,pathLength
-
-		call random_number(randL)
-		pathLength = (1.0d0/(rtKappa+rtSigma))*log(1.0d0/randL)
-	end function getRayPathLength
+	end subroutine transExit
 
 	subroutine setMediumValues(valIn,valNameFlag)
 		real(8),intent(in) :: valIn
@@ -621,17 +381,19 @@ module rt
 	end subroutine setMediumValues
 
 	subroutine getElementNumRays(elNum,elNumRays,elRayPow)
-		integer :: elNodes(4)
+		integer :: elDom,elNodes(4)
 		integer,intent(in) :: elNum
 		integer,intent(out) :: elNumRays
-		real(8) :: elVol,elCentTemp,elEmPow,elNoTemps(4)
+		real(8) :: elVol,elCentTemp,elEmPow,elKappa,elNoTemps(4)
 		real(8),intent(out) :: elRayPow
 
+		elDom = meshElems(elNum)%domain
 		elNodes = meshElems(elNum)%nodes
 		elNoTemps = meshTemperatures(elNodes)
 		elVol = getElementVolume(elNum)
 		elCentTemp = sum(elNoTemps)/4.0d0
-		elEmPow = 4.0d0*rtKappa*sigB*(elCentTemp**4.0d0)*elVol
+		elKappa = rtKappa(elDom)
+		elEmPow = 4.0d0*elKappa*sigB*(elCentTemp**4.0d0)*elVol
 		elNumRays = nint(elEmPow/rtRefRayPow)
 		if(elNumRays .lt. rtElemMinRays) then
 			elNumRays = rtElemMinRays
@@ -756,6 +518,295 @@ module rt
 		call random_number(rBeta)
 		pInt = log(1.d0/rBeta)
 	end function getRayPathIntegral
+
+
+	subroutine createNonUniformEmissionSurface()
+!	Placeholder for future use in case of non-uniform surface 
+!	temperatures
+	end subroutine createNonUniformEmissionSurface
+
+!------------------------------------------------------------------------
+!	LED algorithms for multidomain tracing
+!------------------------------------------------------------------------
+
+	subroutine traceFromSurfLED(pRatio)
+		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrIncs=193,	&
+		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,lcYellow=6,	&
+		lcBlue=3
+		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
+		lambda,elNodes(4)
+		real(8) :: scrLoc=3.d0
+		real(8) :: pInt,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),		&
+		endDir(3),ptScr(3),spFnVals(4)
+		real(8),intent(in) :: pRatio(:)
+		logical :: outPt,vExit,scatter,reEmission
+		character(*),parameter :: fSfEmPts=commResDir//"surfems.out",	&
+								  fSfAbPts=commResDir//"surfpts.out",	&
+								  fSctDirs=commResDir//"sctDirs.out",	&
+								  fReEmDrp=commResDir//"reEmDrp.out",	&
+								  fExitPts=commResDir//"exitPts.out",	&
+								  fScrIncs=commResDir//"scrIncs.out",	&
+								  fOutPts=commResDir//"outPts.out"
+
+		open(nSfEmFil,file=fSfEmPts)
+		open(nSfAbFil,file=fSfAbPts)
+		open(nScrIncs,file=fScrIncs)
+		open(nSctDirs,file=fSctDirs)
+		open(nReEmDrp,file=fReEmDrp)
+		open(nExitPts,file=fExitPts)
+		open(nOutPts,file=fOutPts,position='append')
+		outPtCt = 0
+		reEmDropCt = 0
+		rtNodalSrc = 0.0d0
+
+		do i=1,rtMCNumRays
+			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
+!			write(*,*) "Ray: ", i
+			lambda = lcBlue
+			reEmCt = 0
+			call startRayFromSurf(pRatio,emEl,emFc,pInt,pt,dir)
+			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
+
+!			Tracing line
+			stEl = emEl
+100			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,	&
+			endEl,endPt,endDir)
+!			Handle the exit of a ray from the volume
+			if(vExit) then
+				call handleExit(outPt,outPtCt,endPt,endDir,lambda,		&
+				nExitPts,nScrIncs)
+				cycle
+			end if
+
+			call checkScatter(endEl,lambda,scatter)
+			if(scatter) then
+				pInt = getRayPathIntegral()
+				pt = endPt
+				stEl = endEl
+				dir = scatterRayLargeSphereCloud()
+				write(nSctDirs,'(3(e16.9,2x))') dir
+				goto 100
+			else
+				call checkReemission(endEl,lambda,reEmission)
+				if(reEmission) then
+					reEmCt = reEmCt+1
+					if(reEmCt .gt. MEGA) then
+						write(*,*) "Point dropped in ReEm loop: ", i
+						write(nReEmDrp,'(3(e16.9,2x),i8)') pt,i
+						reEmDropCt = reEmDropCt + 1
+						if(reEmDropCt .gt. rtLimReEmDrops) then
+							write(*,*) "Too many points dropped in reEmission."
+							stop
+						end if
+					end if
+					lambda = lcYellow
+					pInt = getRayPathIntegral()
+					pt = endPt
+					stEl = endEl
+					dir = getRaySphDir()
+					goto 100
+				else
+					rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+					write(nSfAbFil,'(3(f15.12,2x))') endPt
+					call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+					elNodes = meshElems(endEl)%nodes
+					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
+					rtRefRayPow*spFnVals
+				end if
+			end if
+		end do
+		if(reEmDropCt .eq. 0) then
+			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
+		end if
+		write(*,'(a,2x,i3)') "Number of out of face points: ", outPtCt
+		close(nSfEmFil)
+		close(nSfAbFil)
+		close(nScrIncs)
+		close(nSctDirs)
+		close(nReEmDrp)
+		close(nExitPts)
+		close(nOutPts)
+	end subroutine traceFromSurfLED
+
+	subroutine checkScatter(endEl,lambda,sctr)
+		integer,parameter :: lcYellow = 6
+		integer,intent(in) :: endEl,lambda
+		integer :: elDom
+		real(8) :: rAbs
+		logical,intent(out) :: sctr
+
+		elDom = meshElems(endEl)%domain
+		if(rtSigma(elDom) .lt. NANO) then
+			sctr = .false.
+			return
+		end if
+		if(lambda .eq. lcYellow) then
+			sctr = .true.
+			return
+		end if
+		call random_number(rAbs)
+		if(rAbs .gt. rtAbsThr(elDom)) then
+			sctr = .true.
+		else
+			sctr = .false.
+		end if
+	end subroutine checkScatter
+
+	subroutine checkReemission(endEl,lambda,reEmission)
+		integer,parameter :: lcYellow = 6
+		integer,intent(in) :: endEl,lambda
+		integer :: elDom
+		real(8) :: rReem
+		logical,intent(out) :: reEmission
+
+		elDom = meshElems(endEl)%domain
+		reEmission = .false.
+		if(lambda .eq. lcYellow) then
+			reEmission = .true.
+			return
+		end if
+		call random_number(rReem)
+		if(rReem .lt. rtReEmThr(elDom)) then
+			reEmission = .true.
+		else
+			reEmission = .false.
+		end if
+	end subroutine checkReemission
+
+!------------------------------------------------------------------------
+!	END algorithms for multidomain tracing
+!------------------------------------------------------------------------
+
+!------------------------------------------------------------------------
+!	The following routine is a general multi-domain tracing routine
+!	with refraction across domain boundaries and strategies for exit
+!	from system from the previous code improved upon.
+!------------------------------------------------------------------------
+
+	subroutine traceTrans(rN,stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
+	endEl,endPt,endDir)
+		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,cDom,nhbrEl,		&
+		nhbrDom,elNodes(4)
+		integer,intent(in) :: stEl,rN,nFOutPts
+		integer,intent(out) :: endEl
+		real(8) :: lTrav,lToFc,optPath,cBeta,pt(3),dir(3),newDir(3),	&
+		ec(4,3)
+		real(8),intent(in) :: pInt,stPt(3),stDir(3)
+		real(8),intent(out) :: endPt(3),endDir(3)
+!		real(8),intent(inout) :: pt(3),dir(3)
+		logical :: inFc,bbSfChk,trSfChk,npSfChk,trans
+		logical,intent(out) :: outPt,vExit
+
+		cEl = stEl
+		pt = stPt
+		dir = stDir
+		rayIterCt = 0
+		endEl = 0
+		endPt = 0.0d0
+		optPath = 0.0d0
+		endDir = 0.0d0
+		outPt = .false.
+		vExit = .false.
+		do while(optPath.lt.pInt)
+			if(rayIterCt .gt. MEGA) then
+				outPt = .true.
+				write(*,*)"Ray entered interminable loop"
+				exit					
+			end if
+			bbSfChk = .false.
+			trSfChk = .false.
+			npSfChk = .false.
+!	Initialise the face-check values
+			elNodes = meshElems(cEl)%nodes
+			cDom = meshElems(cEl)%domain
+			cBeta = rtBeta(cDom)
+			ec = meshVerts(elNodes,:)
+			pt = pt + DPICO*dir
+			optPath = optPath + DPICO*cBeta
+			call getNextFace(ec,pt,dir,newFc,lToFc)
+			optPath = optPath + lToFc*cBeta
+			if(optPath .ge. pInt) then
+!				pt = pt + (pL-(lTrav-lToFc))*dir						! Need to adjust for correct length travelled
+				pt = pt + (optPath/cBeta-pInt/cBeta)*dir
+				endEl = cEl
+				endPt = pt
+				exit
+			end if
+			pt = pt + lToFc*dir
+			inFc = checkNewPt(pt,dir,ec,newFc)
+			if(.not. inFc) then
+				write(*,*) "Point traced not within face."
+				write(*,*) "Elnum: ",cEl, "Raynum: ",rN
+				write(nFOutPts,'(a)') "Element, face and length: "
+				write(nFOutPts,'(i8,2x,i2,2x,f16.9)') cEl,newFc,lToFc
+				write(nFOutPts,'(a)') "Point and direction: "
+				write(nFOutPts,'(3(f16.9))') pt
+				write(nFOutPts,'(3(f16.9))') dir
+				write(nFOutPts,'(a)') "Element coords: "
+				do noNum=1,4
+					write(nFOutPts,'(3(f16.9))') ec(noNum,:)
+				end do
+				outPt = .true.
+				vExit = .true.
+				exit
+			end if
+!	Check for neighbouring faces
+			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
+			if(nhbrFc .lt. 0) then
+				bbSfChk = (count(-nhbrFc==rtBBSfIds) .gt. 0)
+				trSfChk = (count(-nhbrFc==rtTrSfIds) .gt. 0)
+				npSfChk = (count(-nhbrFc==rtNPSfIds) .gt. 0)
+				if(bbSfChk) then
+					endEl = cEl
+					endPt = pt
+					endDir = dir
+					vExit = .true.
+					lTrav = MEGA
+					exit					
+				end if
+				if(trSfChk) then
+					call transExit(ec,newFc,cDom,dir,trans,newDir)
+					if(trans) then
+						endEl = cEl
+						endPt = pt
+						endDir = newDir
+						lTrav = MEGA
+						vExit = .true.
+						exit
+					else
+						dir = newDir
+					end if
+				end if
+				if(npSfChk) then
+					newDir = specularReflection(ec,newFc,dir)
+					dir = newDir
+				end if
+			else
+				nhbrEl = meshElems(cEl)%neighbours(newFc,1)
+				nhbrDom = meshElems(nhbrEl)%domain
+				if(nhbrDom .ne. cDom) then
+					call transBetweenDoms(ec,newFc,cDom,nhbrDom,dir,	&
+					trans,newDir)
+					dir = newDir
+					if(trans) then
+						cEl = nhbrEl
+					else
+					! Statement added for Total Internal Reflection
+						cEl = cEl
+					end if
+				else
+					cEl = nhbrEl
+				end if
+				rayIterCt = rayIterCt + 1
+			end if
+		end do
+	end subroutine traceTrans
+
+!------------------------------------------------------------------------
+!	END multidomain tracing routine
+!------------------------------------------------------------------------
+
+
 !------------------------------------------------------------------------
 !	Ray tracing routines for 1-D gray medium without transmission lie
 !	hereon. These are not used for the LED case
@@ -955,55 +1006,41 @@ module rt
 		end do
 	end subroutine traceSingleRay
 
-	subroutine traceOut(pRatio)
-		integer,parameter :: limoutpt=5
-		integer,parameter :: nAbsPtsFil=124,nEmPtsFil=248
-		integer :: i,j,cEl,emEl,emFc,endEl,outPtCt,elNodes(4)
-		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
-		real(8),intent(in) :: pRatio(:)
-		real(8),allocatable :: nodalSources(:)
-		logical :: outPt
-		character(*),parameter :: emPtsFil=commResDir//"empts.out",	&
-								  absPtsFil=commResDir//"abspts.out"
+	subroutine createEmissionSurfaces()
+		integer :: i,j,nEmSf,currSurf,nEmFcs,elNum,fcNum,fcNodes(3),	&
+		elNodes(4)
+		real(8) :: fcEmPow,fcArea,fcCentT,emSfPow,fcNoTs(3)
 
-		open(nAbsPtsFil,file=absPtsFil)
-		open(nEmPtsFil,file=emPtsFil)
-		allocate(nodalSources(meshNumNodes))
-		nodalSources = 0.0d0
-		outPtCt = 0
-		do i=1,rtMCNumRays
-			call startRayFromSurf(pRatio,emEl,emFc,pL,pt,dir)
-			write(nEmPtsFil,'(6(f15.12,2x))') pt,dir
-			cEl = emEl
-			call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
-			if(outPt) then
-				outPtCt = outPtCt + 1
-				if(outptct .ge. limoutpt) then
-					write(*,*)"Count of dropped points reached limit."
-					stop
-				end if
+		nEmSf = size(rtEmSfIds,1)
+		if(.not.(allocated(rtEmSurfs))) then
+			allocate(rtEmSurfs(nEmSf))
+		end if
+		do i=1,nEmSf
+			currSurf = rtEmSfIds(i)
+			rtEmSurfs(i)%emSurf = meshSurfs(currSurf)
+			nEmFcs = meshSurfs(currSurf)%numFcs
+			if(.not.(allocated(rtEmSurfs(i)%cuSumFcEmPow))) then
+				allocate(rtEmSurfs(i)%cuSumFcEmPow(nEmFcs))
 			end if
-			do while(endEl .ne. 0)
-				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-				write(nAbsPtsFil,'(3(f15.12,2x))') endPt
-				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
-				elNodes = meshElems(endEl)%nodes
-				nodalSources(elNodes) = nodalSources(elNodes) + 		&
-				rtRefRayPow*spFnVals
-				dir = getRaySphDir()
-				pL = getRayPathLength()
-				pt = endPt
-				cEl = endEl
-				call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+			emSfPow = 0.d0
+			do j=1,nEmFcs
+				elNum = rtEmSurfs(i)%emSurf%elNum(j)
+				elNodes = meshElems(elNum)%nodes
+				fcNum = rtEmSurfs(i)%emSurf%fcNum(j)
+				fcArea = rtEmSurfs(i)%emSurf%fcArea(j)
+				fcNodes = getFaceNodes(fcNum)
+				fcNoTs = meshTemperatures(elNodes(fcNodes))
+				fcCentT = sum(fcNoTs)/3.0d0
+				fcEmPow = sigB*fcArea*(fcCentT**4.0d0)
+				emSfPow = emSfPow+fcEmPow
+				rtEmSurfs(i)%cuSumFcEmPow(j) = emSfPow
 			end do
+			rtEmSurfs(i)%totEmPow = emSfPow
+			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
 		end do
-		close(nEmPtsFil)
-		close(nAbsPtsFil)
-		open(975,file="../obj/tempRadSrc.out")
-			write(975,'(f20.13)') nodalSources
-		close(975)
-		call setMeshNodalValues(nodalSources,"S")
-		rtWallSrc = nodalSources
-	end subroutine traceOut
+	end subroutine createEmissionSurfaces
+!------------------------------------------------------------------------
+!	END of 1-D gray medium subroutines
+!------------------------------------------------------------------------
 
 end module rt
