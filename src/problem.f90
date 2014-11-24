@@ -173,6 +173,10 @@ module problem
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtMCNumRays
 		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtLimOutPts
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtLimReEmDrops
+		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtfResPre
 
 		call skipReadLines(rtDatFileNum,3)
@@ -459,7 +463,88 @@ module problem
 		avSrc = rtNodalSrc*expAvFact + oldSrc*(1.0d0-expAvFact)
 	end subroutine getAveragedSource
 
-	subroutine binScreenPoints(nBins,scrMin,scrMax)
+	subroutine binScreenPolar(nBins)
+		integer,parameter :: nScrPts=151,nScrBins=152,lcYellow=6,		&
+		lcBlue=3
+		integer,intent(in) :: nBins
+		integer :: i,j,nLines,error,lambda,binTh,binPh
+		integer,allocatable :: bY(:,:),bB(:,:)
+		real(8) :: th,ph,stepTh,stepPh,tempD1,tempD2,pt(3),dir(3)
+		real(8),allocatable :: thetas(:),phis(:)
+		character(*),parameter :: fScrPts=commResDir//"scrPts.out",	&
+								  fScrBins=commResDir//"scrPolBins.out"
+
+		open(nScrPts,file=fScrPts)
+		do
+			read(nScrPts,*,iostat = error)
+			if (error .lt. 0) exit
+			nLines = nLines + 1
+		end do
+		close(nScrPts)
+
+		write(*,*) "nTotalPoints: ", nLines
+		stepTh = pi/(2.d0*real(nbins,8))
+		stepPh = 2.d0*pi/real(nbins,8)
+		allocate(thetas(nBins+1))
+		allocate(phis(nBins+1))
+		thetas(1) = 0.d0
+		phis(1) = 0.d0
+		do i=1,25
+			thetas(i+1) = i*stepTh
+			phis(i+1) = i*stepPh
+		end do
+		allocate(bY(nBins,nBins))
+		allocate(bB(nBins,nBins))
+		bY = 0
+		bB = 0
+		open(nScrPts,file=fScrPts)
+		do i=1,nLines
+			read(nScrPts,'(3(e16.9,2x),i2)') pt,lambda
+			! Remember to change next line to use an arbitrary origin
+			dir = pt/(norm2(pt))
+			! Points going backward have to be ignored 
+			! (although there shouldn't be any)
+			if(dir(3).lt. 0.d0) cycle
+			th = acos(dir(3))
+			tempD1 = dir(1)/sin(th)
+			tempD2 = dir(2)/sin(th)
+			if((tempD1.gt. 0.d0).and.(tempD2.gt. 0.d0)) then
+				ph = acos(tempD1)
+			elseif((tempD1.lt. 0.d0).and.(tempD2.gt. 0.d0)) then
+				ph = acos(tempD1)
+			elseif((tempD1.lt. 0.d0).and.(tempD2.lt. 0.d0)) then
+				ph = atan(tempD2/tempD1) + pi
+			elseif((tempD1.gt. 0.d0).and.(tempD2.lt. 0.d0)) then
+				ph = asin(tempD2) + 2.d0*pi
+			else
+				cycle
+			end if
+			do j=1,nBins
+				if((th.gt.thetas(j)).and.(th.lt.thetas(j+1)))then
+					binTh = j
+				end if
+				if((ph.gt.phis(j)).and.(ph.lt.phis(j+1))) then
+					binPh = j
+				end if
+			end do
+			if(lambda .eq. lcYellow) then
+				bY(binTh,binPh) = bY(binTh,binPh) + 1
+			else
+				bB(binTh,binPh) = bB(binTh,binPh) + 1
+			end if
+		end do
+		close(nScrPts)
+
+		open(nScrBins,file=fScrBins)
+		do i=1,nBins
+			write(nScrBins,'(<nBins>(i8,2x))') bY(i,:)
+			write(nScrBins,'(<nBins>(i8,2x))') bB(i,:)
+		end do
+		close(nScrBins)
+
+	end subroutine binScreenPolar
+
+	subroutine binWallPoints(nBins,scrMin,scrMax)
 		integer,parameter :: nScrIncs=151,nScrBins=152,lcYellow=6,		&
 		lcBlue=3
 		integer,intent(in) :: nBins
@@ -467,12 +552,12 @@ module problem
 		integer,allocatable :: bY(:,:),bB(:,:)
 		real(8) :: pt(3),edges(3)
 		real(8),intent(in) :: scrMin(3),scrMax(3)
-		character(*),parameter :: fSfEmPts=commResDir//"scrIncs.out",	&
-								  fScPtsBin=commResDir//"scrBins.out"
+		character(*),parameter :: fSfEmPts=commResDir//"wallIncs.out",	&
+								  fScPtsBin=commResDir//"wallBins.out"
 
 		open(nScrIncs,file=fSfEmPts)
 		do
-			read(nScrIncs,*, iostat = error)
+			read(nScrIncs,*,iostat = error)
 			if (error .lt. 0) exit
 			nLines = nLines + 1
 		end do
@@ -506,6 +591,6 @@ module problem
 		end do
 		close(nScrBins)
 
-	end subroutine binScreenPoints
+	end subroutine binWallPoints
 
 end module problem

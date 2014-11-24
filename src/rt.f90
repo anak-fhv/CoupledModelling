@@ -66,9 +66,9 @@ module rt
 		rtWallInf = 0
 		rtWallSrc = 0.0d0
 		rtNodalSrc = 0.0d0
-		rtLimOutPts = nint(5.0d-6*real(rtMCNumRays,8))
+!		rtLimOutPts = nint(150.0d-6*real(rtMCNumRays,8))
 		write(*,*) "rtLimOutPts: ",rtLimOutPts
-		rtLimReEmDrops = nint(2.d-6*real(rtMCNumRays,8))
+!		rtLimReEmDrops = nint(2.d-6*real(rtMCNumRays,8))
 		write(*,*) "rtLimReEmDrops: ",rtLimReEmDrops
 
 		call CreateUniformEmissionSurfaces()
@@ -85,10 +85,10 @@ module rt
 	end subroutine rtInitMesh
 
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
-	nScrIncs)
-		integer,intent(in) :: lambda,nExitPts,nScrIncs
+	nScrPts)
+		integer,intent(in) :: lambda,nExitPts,nScrPts
 		integer,intent(inout) :: outPtCt
-		real(8),parameter :: scrDist=3.d0
+		real(8),parameter :: scrDist=1.d0
 		real(8) :: ptScr(3)
 		real(8),intent(in) :: endPt(3),dirOut(3)
 		logical,intent(in) :: outPt
@@ -97,16 +97,44 @@ module rt
 			outPtCt = outPtCt + 1
 			if(outPtCt .gt. rtLimOutPts) then
 				write(*,*)"Count of out points reached limit."
-				stop
+!				stop
+				return
 			end if
 		else
 			write(nExitPts,'(6(e16.9,2x),i2)') endPt,dirOut,lambda
-			if(dirOut(3) .gt. 0.d0) then
-				ptScr = ((scrDist-endPt(3))/dirOut(3))*dirOut + endPt
-				write(nScrIncs,'(3(e16.9,2x),i2)') ptScr,lambda
+			if(dirOut(3) .gt. NANO) then
+				call getScreenPoint(endPt,dirOut,scrDist,ptScr)
+				if(ptScr(3).gt. 0.d0) then
+					write(nScrPts,'(3(e16.9,2x),i2)') ptScr,lambda
+				end if
 			end if
 		end if
 	end subroutine handleExit
+
+	subroutine getScreenPoint(p,d,rScr,pScr)
+		integer :: i,j
+		real(8) :: a,b,c,x(2)
+		real(8),intent(in) :: rScr,p(3),d(3)
+		real(8),intent(out) :: pScr(3)
+
+!		See derivation: a = s^2(dx^2+dy^2+dz^2), 
+!		but dx,dy,dz are direction coordinates
+		a = 1.d0
+		b = 2.d0*(p(1)*d(1)+p(2)*d(2)+p(3)*d(3))
+		c = (p(1)**2.d0+p(2)**2.d0+p(3)**2.d0 - rScr**2.d0)
+		call solveQuadratic(a,b,c,x)
+		if(x(1) .le. 0.d0) then
+			pScr = p + x(2)*d
+		else
+			pScr = p + x(1)*d
+		end if
+
+!		Important to check the point
+		if(abs(sum(pScr**2.d0)-rScr**2.d0) .gt. NANO) then
+			write(*,'(a)') "Quadratic solved wrong"
+		end if
+
+	end subroutine getScreenPoint
 
 	subroutine getNextFace(ec,pt,dir,newFc,lToFc)
 		integer :: fc,remNode,fcNodes(3)
@@ -212,19 +240,6 @@ module rt
 		call bisLocReal(emSf%cuSumFcEmPow,psi,ind1,ind2)
 		emEl = emSf%emSurf%elNum(ind2)
 		emFc = emSf%emSurf%fcNum(ind2)
-!	    if (psi > 0.5d0) then
-!	        do i=size(emSf%cuSumFcEmPow,1)-1,1,-1
-!	            if (emSf%cuSumFcEmPow(i) .lt. psi) exit
-!	        end do
-!	        emEl = emSf%emSurf%elNum(i+1)
-!	        emFc = emSf%emSurf%fcNum(i+1)
-!	    else           
-!	        do i=1,size(emSf%cuSumFcEmPow,1)
-!	            if (emSf%cuSumFcEmPow(i) .gt. psi) exit
-!	        end do
-!	        emEl = emSf%emSurf%elNum(i)
-!	        emFc = emSf%emSurf%fcNum(i)
-!	    end if
 	end subroutine getEmFace
 
 	subroutine createUniformEmissionSurfaces()
@@ -337,7 +352,7 @@ module rt
 		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
 		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
-		fcNorm(3),fcVerts(3,3)
+		fcNorm(3),fcVerts(3,3),temp1,temp2
 		real(8),intent(in) :: ec(4,3),dirIn(3)
 		real(8),intent(out):: dirOut(3)
 		logical,intent(out) :: trans
@@ -363,6 +378,12 @@ module rt
 			sinTht = rIndRatio*sin(acos(cosInc))
 			dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
 			dirOut = dirOut + rIndRatio*dirIn
+			! Check for correct direction of refraction
+			temp1 = acos(dot_product(dirOut,-fcNorm))
+			temp2 = sin(temp1)
+			if(abs(temp2-trRatio) .gt. NANO) then
+				write(*,'(a)') "trouble refracting"
+			end if
 		end if
 	end subroutine transExit
 
@@ -408,8 +429,9 @@ module rt
 		real(8),intent(in) :: rMu
 		real(8),intent(out) :: mu
 
-		ratio = (rMu-muMin)/(muMax-muMin)
-		interLoc = floor(ratio*rtNumPFTable)
+!		ratio = (rMu-muMin)/(muMax-muMin)
+!		interLoc = floor(ratio*rtNumPFTable)
+		interLoc = floor(rMu*real(rtNumPFTable,8))
 		if(interLoc == 0) then
 			interLoc = 1
 		end if
@@ -419,6 +441,8 @@ module rt
 		numReal = real(rtNumPFTable,8)
 		randLv = (intLocReal-1)*1.0d0/numReal
 		randhV = (intLocReal)*1.0d0/numReal
+!		randLv = intLocReal/numReal
+!		randHv = (intLocReal + 1.d0)/numReal
 		mu = lV + ((rMu-randLv)/(randHv-randLv))*(hV-lV)
 		if(mu .lt. -1.d0) mu = -1.d0
 		if(mu .gt. 1.d0) mu = 1.d0
@@ -429,7 +453,7 @@ module rt
 		real(8) :: j,h,m,a,b,c,d,r,stepSize
 		real(8),allocatable :: x(:),y(:),yy(:)
 
-		nSplSteps = 10
+		nSplSteps = 100
 		h = 2.0d0/nSplSteps
 		allocate(x(nSplSteps+1))
 		allocate(y(nSplSteps+1))
@@ -445,9 +469,9 @@ module rt
 		if(.not.(allocated(rtPFTable))) then
 			allocate(rtPFTable(rtNumPFTable))
 		end if
-		stepSize = 1.0d0/rtNumPFTable
+		stepSize = 1.0d0/real(rtNumPFTable,8)
 		i = 0
-		do m=0.0d0,0.99999d0,stepSize
+		do m=0.0d0,0.999999999d0,stepSize
 			i = i+1
 			do lV=1,nSplSteps-1
 				r = (m-y(lV))/(y(lV+1)-y(lV))
@@ -530,13 +554,13 @@ module rt
 !------------------------------------------------------------------------
 
 	subroutine traceFromSurfLED(pRatio)
-		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrIncs=193,	&
+		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrPts=193,	&
 		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,lcYellow=6,	&
 		lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
-		lambda,elNodes(4)
-		real(8) :: scrLoc=3.d0
-		real(8) :: pInt,rAbs,rReEm,pt(3),dir(3),endPt(3),dirOut(3),		&
+		absNoReEmCt,lambda,elNodes(4)
+		real(8),parameter :: scrLoc=3.d0
+		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
 		endDir(3),ptScr(3),spFnVals(4)
 		real(8),intent(in) :: pRatio(:)
 		logical :: outPt,vExit,scatter,reEmission
@@ -545,18 +569,19 @@ module rt
 								  fSctDirs=commResDir//"sctDirs.out",	&
 								  fReEmDrp=commResDir//"reEmDrp.out",	&
 								  fExitPts=commResDir//"exitPts.out",	&
-								  fScrIncs=commResDir//"scrIncs.out",	&
+								  fScrPts=commResDir//"scrPts.out",	&
 								  fOutPts=commResDir//"outPts.out"
 
 		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
-		open(nScrIncs,file=fScrIncs)
+		open(nScrPts,file=fScrPts)
 		open(nSctDirs,file=fSctDirs)
 		open(nReEmDrp,file=fReEmDrp)
 		open(nExitPts,file=fExitPts)
 		open(nOutPts,file=fOutPts,position='append')
 		outPtCt = 0
 		reEmDropCt = 0
+		absNoReEmCt = 0
 		rtNodalSrc = 0.0d0
 
 		do i=1,rtMCNumRays
@@ -574,17 +599,33 @@ module rt
 !			Handle the exit of a ray from the volume
 			if(vExit) then
 				call handleExit(outPt,outPtCt,endPt,endDir,lambda,		&
-				nExitPts,nScrIncs)
+				nExitPts,nScrPts)
+				if(outPtCt .gt. rtLimOutPts) then
+					write(*,*)"Leaving tracing routine now."
+					return
+				end if
 				cycle
 			end if
 
 			call checkScatter(endEl,lambda,scatter)
 			if(scatter) then
+				reEmCt = reEmCt+1
+				if(reEmCt .gt. MEGA) then
+					write(*,*) "Point dropped in ReEm loop: ", i
+					write(nReEmDrp,'(3(e16.9,2x),i8)') pt,i
+					reEmDropCt = reEmDropCt + 1
+					cycle
+					if(reEmDropCt .gt. rtLimReEmDrops) then
+						write(*,*) "Too many points dropped in reEmission."
+						stop
+					end if
+				end if
 				pInt = getRayPathIntegral()
 				pt = endPt
 				stEl = endEl
 				dir = scatterRayLargeSphereCloud()
-				write(nSctDirs,'(3(e16.9,2x))') dir
+				tcos = dot_product(endDir,dir)
+				write(nSctDirs,'(4(e16.9,2x))') dir,tcos
 				goto 100
 			else
 				call checkReemission(endEl,lambda,reEmission)
@@ -594,6 +635,7 @@ module rt
 						write(*,*) "Point dropped in ReEm loop: ", i
 						write(nReEmDrp,'(3(e16.9,2x),i8)') pt,i
 						reEmDropCt = reEmDropCt + 1
+						cycle
 						if(reEmDropCt .gt. rtLimReEmDrops) then
 							write(*,*) "Too many points dropped in reEmission."
 							stop
@@ -612,16 +654,18 @@ module rt
 					elNodes = meshElems(endEl)%nodes
 					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
 					rtRefRayPow*spFnVals
+					absNoReEmCt = absNoReEmCt + 1
 				end if
 			end if
 		end do
 		if(reEmDropCt .eq. 0) then
 			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
 		end if
-		write(*,'(a,2x,i3)') "Number of out of face points: ", outPtCt
+		write(*,'(a,2x,i3)')"Out of face points: ", outPtCt
+		write(*,'(a,2x,i8)')"Rays completely absorbed: ",absNoReEmCt
 		close(nSfEmFil)
 		close(nSfAbFil)
-		close(nScrIncs)
+		close(nScrPts)
 		close(nSctDirs)
 		close(nReEmDrp)
 		close(nExitPts)
@@ -693,7 +737,6 @@ module rt
 		ec(4,3)
 		real(8),intent(in) :: pInt,stPt(3),stDir(3)
 		real(8),intent(out) :: endPt(3),endDir(3)
-!		real(8),intent(inout) :: pt(3),dir(3)
 		logical :: inFc,bbSfChk,trSfChk,npSfChk,trans
 		logical,intent(out) :: outPt,vExit
 
@@ -710,13 +753,14 @@ module rt
 		do while(optPath.lt.pInt)
 			if(rayIterCt .gt. MEGA) then
 				outPt = .true.
+				vExit = .true.
 				write(*,*)"Ray entered interminable loop"
 				exit					
 			end if
 			bbSfChk = .false.
 			trSfChk = .false.
 			npSfChk = .false.
-!	Initialise the face-check values
+!			Initialise the face-check values
 			elNodes = meshElems(cEl)%nodes
 			cDom = meshElems(cEl)%domain
 			cBeta = rtBeta(cDom)
@@ -726,10 +770,10 @@ module rt
 			call getNextFace(ec,pt,dir,newFc,lToFc)
 			optPath = optPath + lToFc*cBeta
 			if(optPath .ge. pInt) then
-!				pt = pt + (pL-(lTrav-lToFc))*dir						! Need to adjust for correct length travelled
 				pt = pt + (optPath/cBeta-pInt/cBeta)*dir
 				endEl = cEl
 				endPt = pt
+				endDir = dir
 				exit
 			end if
 			pt = pt + lToFc*dir
@@ -750,7 +794,7 @@ module rt
 				vExit = .true.
 				exit
 			end if
-!	Check for neighbouring faces
+!			Check for neighbouring faces
 			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
 			if(nhbrFc .lt. 0) then
 				bbSfChk = (count(-nhbrFc==rtBBSfIds) .gt. 0)
@@ -791,7 +835,7 @@ module rt
 					if(trans) then
 						cEl = nhbrEl
 					else
-					! Statement added for Total Internal Reflection
+! 						Statement added for Total Internal Reflection
 						cEl = cEl
 					end if
 				else

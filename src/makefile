@@ -2,7 +2,8 @@
 
 # Makefile variables
 FC      = ifort
-FCFLAGS = -g -parallel -mkl -traceback -openmp -CB
+# -g: use this flag only if debugging is required
+FCFLAGS = -parallel -mkl -traceback -openmp -CB
 VPATH	:= src
 OBJDIR	:= ../obj
 LIBPATH := /opt/intel/mkl/lib/intel64

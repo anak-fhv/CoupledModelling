@@ -14,9 +14,10 @@ program runModel
 !	call femSimple()
 !	call rtFemSimple()
 !	call rtLED()
-	call rtFEMLED()
-	call binScreenPoints(25,(/-3.d0,-3.d0,-3.d0/),(/3.d0,3.d0,3.d0/))
-!	call prepRtGen()
+!	call rtFEMLED()
+!	call binScreenPoints(25,(/-3.d0,-3.d0,-3.d0/),(/3.d0,3.d0,3.d0/))
+	call prepRtGen()
+	call binScreenPolar(25)
 
 	call date_and_time(date,time,zone,values2)
 	write(*,'(a,(3i8,2x),i8)') "End time: ",values2(5:8)

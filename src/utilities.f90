@@ -53,6 +53,16 @@ module utilities
 !	general routines.
 !-----------------------------------------------------------------------!
 
+	subroutine solveQuadratic(a,b,c,x)
+		real(8) :: q
+		real(8),intent(in) :: a,b,c
+		real(8),intent(out):: x(2)
+
+		q = -(1.d0/2.d0)*(b+sign(sqrt(b**2.d0 - 4*a*c),b))
+		x(1) = q/a
+		x(2) = c/q
+	end subroutine solveQuadratic
+
 	subroutine getVolFracFromMassFrac(rho1,rho2,fm1,fv1)
 		real(8) :: rhoRatio,mfInv
 		real(8),intent(in) :: rho1,rho2,fm1
@@ -358,6 +368,48 @@ module utilities
 			read(unitNum,*)
 		end do
 	end subroutine skipReadLines
+
+	subroutine bisLocReal(A,val,ind1,ind2)
+		integer :: k,st,en,mid
+		real(8),intent(in) :: val,A(:)
+		integer,intent(out) :: ind1,ind2
+		logical :: search
+
+		k = size(A,1)
+		if(val .lt. A(1)) then
+			ind1 = 1
+			ind2 = 1
+			return
+		end if
+		if(val .gt. A(k-1)) then
+			ind1 = k-1
+			ind2 = k
+			return
+		end if
+		st = 1
+		mid = k/2
+		en = k
+		search = .true.
+		do while(search)
+			if(val < A(mid)) then
+				en = mid
+				mid = (st + en)/2
+				if((A(mid).gt.val).and.(A(mid-1).lt.val)) then
+					ind1 = mid-1
+					ind2 = mid
+					search = .false.
+				end if
+			else
+				st = mid
+				mid = (st + en)/2
+				if((A(mid).lt.val).and.(A(mid+1).gt.val)) then
+					ind1 = mid
+					ind2 = mid+1
+					search = .false.
+				end if				
+			end if
+		end do
+	end subroutine
 
 !-----------------------------------------------------------------------!
 !	End of mathematical operation routines
