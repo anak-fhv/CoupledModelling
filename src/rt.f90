@@ -16,7 +16,7 @@ module rt
 	integer,parameter :: rtNumPFTable=10000,rtElemMinRays=5
 	integer :: rtMCNumRays,rtNumEmSfs,rtNumCTEmSfs,rtNumCQEmSfs,		&
 	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs,rtNumAbsSfs,rtLimOutPts,			&
-	rtLimReEmDrops
+	rtLimReEmDrops,rtNtraces,rtBBAbsNum,rtTrExitNum
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:),rtAbsSfIds(:)
@@ -85,11 +85,11 @@ module rt
 	end subroutine rtInitMesh
 
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
-	nScrPts)
-		integer,intent(in) :: lambda,nExitPts,nScrPts
+	nScrPts,nBotPts)
+		integer,intent(in) :: lambda,nExitPts,nScrPts,nBotPts
 		integer,intent(inout) :: outPtCt
-		real(8),parameter :: scrDist=1.d0
-		real(8) :: ptScr(3)
+		real(8),parameter :: scrDist=1.d0, bottomSurf=0.d0
+		real(8) :: ptScr(3),ptBot(3)
 		real(8),intent(in) :: endPt(3),dirOut(3)
 		logical,intent(in) :: outPt
 
@@ -102,12 +102,14 @@ module rt
 			end if
 		else
 			write(nExitPts,'(6(e16.9,2x),i2)') endPt,dirOut,lambda
-			if(dirOut(3) .gt. NANO) then
-				call getScreenPoint(endPt,dirOut,scrDist,ptScr)
-				if(ptScr(3).gt. 0.d0) then
-					write(nScrPts,'(3(e16.9,2x),i2)') ptScr,lambda
-				end if
+!			if(dirOut(3) .gt. 0.d0) then
+			call getScreenPoint(endPt,dirOut,scrDist,ptScr)
+			if(ptScr(3).gt. bottomSurf) then
+				write(nScrPts,'(3(e16.9,2x),i2)') ptScr,lambda
+			else
+				write(nBotPts,'(3(e16.9,2x),i2)') ptScr,lambda
 			end if
+!			end if
 		end if
 	end subroutine handleExit
 
@@ -196,6 +198,16 @@ module rt
 		real(8),intent(out) :: pInt,pt(3),dir(3)
 
 		call chooseEmittingFace(pRatio,emEl,emFc)
+		! Added to the code to make a near point source simulation
+		! For 1040 mu hemisphere
+!		emEl = 67
+!		emFc = 4
+
+		! For 1040 mu cylinder
+!		emEl = 272
+!		emFc = 1
+
+		! Added to the code to make a near point source simulation
 		elNodes = meshElems(emEl)%nodes
 		ec = meshVerts(elNodes,:)
 		fcNodes = getFaceNodes(emFc)
@@ -317,8 +329,8 @@ module rt
 	subroutine transBetweenDoms(ec,fcNum,cDom,nhbrDom,dirIn,trans,dirOut)
 		integer,intent(in) :: fcNum,cDom,nhbrDom
 		integer :: remNo,fcNodes(3)
-		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
-		fcNorm(3),fcVerts(3,3)
+		real(8) :: rIndRatio,th1,th2,cosInc,sinTht,rhoFresnel,frRefChk,	&
+		temp1,temp2,remVert(3),fcNorm(3),fcVerts(3,3)
 		real(8),intent(in) :: ec(4,3),dirIn(3)
 		real(8),intent(out):: dirOut(3)
 		logical,intent(out) :: trans
@@ -335,15 +347,33 @@ module rt
             cosInc = -cosInc
             fcNorm = -fcNorm
         end if
+		th1 = acos(cosInc)
 		rIndRatio = (rtRefrInd(cDom)/rtRefrInd(nhbrDom))
-		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
-		if(trRatio .gt. 1.d0) then
+		sinTht = rIndRatio*sqrt(1-cosInc**2.d0)
+		th2 = asin(sinTht)
+		if(sinTht .gt. 1.d0) then
+			trans = .false.
 			dirOut = specularReflection(ec,fcNum,dirIn)
+			return
 		else
-			trans = .true.
-			sinTht = rIndRatio*sin(acos(cosInc))
-			dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
-			dirOut = dirOut + rIndRatio*dirIn
+			call getFresnelReflectivity(th1,th2,rhoFresnel)
+			call random_number(frRefChk)
+			if(frRefChk .lt. rhoFresnel) then
+				trans = .false.
+				dirOut = specularReflection(ec,fcNum,dirIn)
+				return
+			else
+				trans = .true.
+				dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
+				dirOut = dirOut + rIndRatio*dirIn
+				! Check for correct direction of refraction
+				temp1 = acos(dot_product(dirOut,-fcNorm))
+				temp2 = sin(temp1)
+				if(abs(temp2-sinThT) .gt. NANO) then
+					write(*,'(a)') "trouble refracting"
+				end if
+				return
+			end if
 		end if
 	end subroutine transBetweenDoms
 
@@ -351,13 +381,12 @@ module rt
 		integer,intent(in) :: fcNum,cDom
 		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
-		real(8) :: rIndRatio,thi,trRatio,cosInc,sinTht,remVert(3),	&
-		fcNorm(3),fcVerts(3,3),temp1,temp2
+		real(8) :: rIndRatio,th1,th2,cosInc,sinTht,rhoFresnel,frRefChk,&
+		temp1,temp2,remVert(3),fcNorm(3),fcVerts(3,3)
 		real(8),intent(in) :: ec(4,3),dirIn(3)
 		real(8),intent(out):: dirOut(3)
 		logical,intent(out) :: trans
 
-		trans = .false.
 		fcNodes = getFaceNodes(fcNum)
 		remNo = 10-sum(fcNodes)
 		fcVerts = ec(fcNodes,:)
@@ -369,23 +398,46 @@ module rt
             cosInc = -cosInc
             fcNorm = -fcNorm
         end if
+		th1 = acos(cosInc)
 		rIndRatio = (rtRefrInd(cDom)/n2)
-		trRatio = rIndRatio*sqrt(1-cosInc**2.d0)
-		if(trRatio .gt. 1.d0) then
+		sinTht = rIndRatio*sqrt(1-cosInc**2.d0)
+		th2 = asin(sinTht)
+		if(sinTht .gt. 1.d0) then
+			trans = .false.
 			dirOut = specularReflection(ec,fcNum,dirIn)
+			return
 		else
-			trans = .true.
-			sinTht = rIndRatio*sin(acos(cosInc))
-			dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
-			dirOut = dirOut + rIndRatio*dirIn
-			! Check for correct direction of refraction
-			temp1 = acos(dot_product(dirOut,-fcNorm))
-			temp2 = sin(temp1)
-			if(abs(temp2-trRatio) .gt. NANO) then
-				write(*,'(a)') "trouble refracting"
+			call getFresnelReflectivity(th1,th2,rhoFresnel)
+			call random_number(frRefChk)
+			if(frRefChk .lt. rhoFresnel) then
+				trans = .false.
+				dirOut = specularReflection(ec,fcNum,dirIn)
+				return
+			else
+				trans = .true.
+				dirOut = (rIndRatio*cosInc-sqrt(1.d0-sinTht**2.d0))*fcNorm
+				dirOut = dirOut + rIndRatio*dirIn
+				! Check for correct direction of refraction
+				temp1 = acos(dot_product(dirOut,-fcNorm))
+				temp2 = sin(temp1)
+				if(abs(temp2-sinThT) .gt. NANO) then
+					write(*,'(a)') "trouble refracting"
+				end if
+				return
 			end if
 		end if
 	end subroutine transExit
+
+	subroutine getFresnelReflectivity(th1,th2,rhoFresnel)
+		real(8) :: thDiff,thSum
+		real(8),intent(in) :: th1,th2
+		real(8),intent(out) :: rhoFresnel
+
+		thDiff = th1-th2
+		thSum = th1+th2
+		rhoFresnel = 0.5d0*((tan(thDiff)**2.d0/tan(thSum)**2.d0) + 		&
+		(sin(thDiff)**2.d0/sin(thSum)**2.d0))
+	end subroutine getFresnelReflectivity
 
 	subroutine setMediumValues(valIn,valNameFlag)
 		real(8),intent(in) :: valIn
@@ -555,8 +607,8 @@ module rt
 
 	subroutine traceFromSurfLED(pRatio)
 		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrPts=193,	&
-		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,lcYellow=6,	&
-		lcBlue=3
+		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,nBotPts=198,	&
+		lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
 		absNoReEmCt,lambda,elNodes(4)
 		real(8),parameter :: scrLoc=3.d0
@@ -569,8 +621,9 @@ module rt
 								  fSctDirs=commResDir//"sctDirs.out",	&
 								  fReEmDrp=commResDir//"reEmDrp.out",	&
 								  fExitPts=commResDir//"exitPts.out",	&
-								  fScrPts=commResDir//"scrPts.out",	&
-								  fOutPts=commResDir//"outPts.out"
+								  fScrPts=commResDir//"scrPts.out",		&
+								  fOutPts=commResDir//"outPts.out",		&
+								  fBotPts=commResDir//"botPts.out"
 
 		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
@@ -578,11 +631,15 @@ module rt
 		open(nSctDirs,file=fSctDirs)
 		open(nReEmDrp,file=fReEmDrp)
 		open(nExitPts,file=fExitPts)
+		open(nBotPts,file=fBotPts)
 		open(nOutPts,file=fOutPts,position='append')
 		outPtCt = 0
 		reEmDropCt = 0
 		absNoReEmCt = 0
 		rtNodalSrc = 0.0d0
+		rtNtraces = 0
+		rtTrExitNum = 0
+		rtBBAbsNum = 0
 
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
@@ -590,16 +647,18 @@ module rt
 			lambda = lcBlue
 			reEmCt = 0
 			call startRayFromSurf(pRatio,emEl,emFc,pInt,pt,dir)
+			! Added for point source
 			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
 
 !			Tracing line
 			stEl = emEl
-100			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,	&
+100			rtNtraces = rtNtraces + 1
+			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,	&
 			endEl,endPt,endDir)
 !			Handle the exit of a ray from the volume
 			if(vExit) then
 				call handleExit(outPt,outPtCt,endPt,endDir,lambda,		&
-				nExitPts,nScrPts)
+				nExitPts,nScrPts,nBotPts)
 				if(outPtCt .gt. rtLimOutPts) then
 					write(*,*)"Leaving tracing routine now."
 					return
@@ -662,7 +721,10 @@ module rt
 			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
 		end if
 		write(*,'(a,2x,i3)')"Out of face points: ", outPtCt
-		write(*,'(a,2x,i8)')"Rays completely absorbed: ",absNoReEmCt
+		write(*,'(a,2x,i8)')"Rays completely absorbed: ", absNoReEmCt
+		write(*,'(a,2x,i8)')"Number of actual traces: ", rtNtraces
+		write(*,'(a,2x,i8)')"Rays absorbed by black surfaces: ",rtBBAbsNum
+		write(*,'(a,2x,i8)')"Rays exiting the transparent surfaces: ",rtTrExitNum
 		close(nSfEmFil)
 		close(nSfAbFil)
 		close(nScrPts)
@@ -670,6 +732,7 @@ module rt
 		close(nReEmDrp)
 		close(nExitPts)
 		close(nOutPts)
+		close(nBotPts)
 	end subroutine traceFromSurfLED
 
 	subroutine checkScatter(endEl,lambda,sctr)
@@ -806,6 +869,7 @@ module rt
 					endDir = dir
 					vExit = .true.
 					lTrav = MEGA
+					rtBBAbsNum = rtBBAbsNum + 1
 					exit					
 				end if
 				if(trSfChk) then
@@ -816,6 +880,7 @@ module rt
 						endDir = newDir
 						lTrav = MEGA
 						vExit = .true.
+						rtTrExitNum = rtTrExitNum + 1
 						exit
 					else
 						dir = newDir

@@ -193,7 +193,7 @@ module mesh
 
 	subroutine getElementNeighbours()
 		integer,parameter :: datFileNum=101
-		integer :: i,j,k,temp(8),values(8)
+		integer :: i,j,k,binSize,empBinCt,numTotBins,temp(8),values(8)
 		logical :: datFileExist
 		character(72) :: datFile
 		character :: date*8,time*10,zone*5
@@ -213,55 +213,31 @@ module mesh
 			close(datFileNum)
 			return
 		else
+			numTotBins = product(meshNBins)
+			call date_and_time(date,time,zone,values)
+			write(*,'(a,1x,4(i4))')"Neighbourhood gathering started: ", values(5:8)
 			call binElements(elBins)
+			empBinCt = 0
 			do k=1,meshNBins(3)
 				do j=1,meshNBins(2)
 					do i=1,meshNBins(1)
-						call date_and_time(date,time,zone,values)
-						write(*,*) "Bin start: ", values(5:8)
-						write(*,*) "Now checking bin: ", i,j,k
+						binSize = size(elBins(i,j,k)%bin,1)
+						if(binSize .eq. 0) then
+							empBinCt = empBinCt + 1
+							cycle
+						end if
 						call findNeighboursWithinBin(elBins(i,j,k))
 						call findNeighboursAcrossBins(i,j,k,elBins)
 					end do
 				end do
 			end do
-			write(*,*) "Neighbourhood data complete"
+			call date_and_time(date,time,zone,values)
 			call writeElementNeighbourhoodData()
+			write(*,*)"Total number of bins assigned: ",numTotBins
+			write(*,*)"Number of empty bins found: ",empBinCt
+			write(*,'(a,1x,4(i4))')"Neighbourhood gathering completed: ",values(5:8)
 		end if
 	end subroutine getElementNeighbours
-
-!	subroutine binElements(elBins)
-!		integer :: i,j,sz,cRs(3),elNodes(4)
-!		integer,allocatable :: temp(:)
-!		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
-!		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)
-
-!		allocate(elBins(meshNBins(1),meshNBins(2),meshNBins(3)))
-!		dmin = minval(meshVerts,1)
-!		dmax = maxval(meshVerts,1)
-!		edges = dmax-dmin
-!		do i=1,meshNumElems
-!			elNodes = meshElems(i)%nodes
-!			elVerts = meshVerts(elNodes,:)
-!			elCent = sum(elVerts,1)/4.0d0
-!			meshElems(i)%centroid = elCent
-!			cRs = ceiling(((elCent-dmin)/edges)*meshNBins)
-!			where(cRs == 0)
-!				cRs = 1
-!			end where
-!			sz = size(elBins(cRs(1),cRs(2),cRs(3))%bin,1)
-!			if(sz.gt.0) then
-!				allocate(temp(sz+1))
-!				write(*,*) "cRs ", cRs, "sz: ",sz
-!				temp(1:sz) = elBins(cRs(1),cRs(2),cRs(3))%bin
-!				temp(sz+1) = i
-!				call move_alloc(temp,elBins(cRs(1),cRs(2),cRs(3))%bin)
-!			else
-!				allocate(elBins(cRs(1),cRs(2),cRs(3))%bin(1))
-!				elBins(cRs(1),cRs(2),cRs(3))%bin = i
-!			end if
-!		end do
-!	end subroutine binElements
 
 	subroutine binElements(elBins)
 		integer :: i,j,k,sz,maxPerBin,endPt,check,cRs(3),elNodes(4)
@@ -275,15 +251,14 @@ module mesh
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
-		maxPerBin = meshNumElems/product(meshNBins)
+		maxPerBin = 2*meshNumElems/product(meshNBins)
 
 		do i=1,meshNumElems
-			if(mod(i,meshNumElems/10) .eq. 0) write(*,*) "Elem: ", i
 			elNodes = meshElems(i)%nodes
 			elVerts = meshVerts(elNodes,:)
 			elCent = sum(elVerts,1)/4.0d0
 			meshElems(i)%centroid = elCent
-			cRs = ceiling(((elCent-dmin)/edges)*meshNBins)
+			cRs = ceiling(((elCent-dmin)/edges)*real(meshNBins,8))
 			where(cRs == 0)
 				cRs = 1
 			end where
@@ -303,21 +278,16 @@ module mesh
 		do i=1,meshNBins(1)
 			do j=1,meshNBins(2)
 				do k=1,meshNBins(3)
-!					endPt = minloc(elBins(i,j,k)%bin,1,mask=elBins(i,j,k)%bin.eq.0)
-!					allocate(temp(endPt-1))
 					if(lZ(i,j,k) .eq. 0) cycle
 					allocate(temp(lZ(i,j,k)))
-!					check = check + endPt - 1
 					check = check + lZ(i,j,k)
-!					temp = elBins(i,j,k)%bin(1:endPt-1)
 					temp = elBins(i,j,k)%bin(1:lZ(i,j,k))
 					deallocate(elBins(i,j,k)%bin)
 					call move_alloc(temp,elBins(i,j,k)%bin)
 				end do
 			end do
 		end do
-		write(*,*) "Elements binned"
-		write(*,*) "Number found: ", check
+		write(*,'(i8,1x,a)')check, "elements binned"
 	end subroutine binElements
 
 	subroutine findNeighboursWithinBin(singleBin)
@@ -354,31 +324,38 @@ module mesh
 		integer,intent(in) :: c1,c2,c3
 		integer :: i,j,k,ol,il,ct1,ct2,binSz1,binSz2,el1,el2,fc1,fc2,	&
 		elNo1(4),elNo2(4)
+		integer,allocatable :: givenBin(:),adjBin(:)
 		logical :: shared
-		type(elementBin) :: givenBin,adjBin
 		type(elementBin),intent(in) :: elBins(:,:,:)
 
-		givenBin = elBins(c1,c2,c3)
-		binSz1 = size(givenBin%bin,1)
+		binSz1 = size(elBins(c1,c2,c3)%bin,1)
+		allocate(givenBin(binSz1))
+		givenBin = elBins(c1,c2,c3)%bin
 		currentBin: do ol=1,binSz1
-			el1 = givenBin%bin(ol)
+			el1 = givenBin(ol)
 			ct1 = count(meshElems(el1)%neighbours(:,1)>0)
 			if(ct1 == 4) cycle
 			elNo1 = meshElems(el1)%nodes
 			zBinIndex: do k=c3-1,c3+1
-				if((k==0).or.(k.gt.meshNBins(3))) cycle
+				if((k==0).or.(k.gt.meshNBins(3))) cycle zBinIndex
 				yBinIndex: do j=c2-1,c2+1
-					if((j==0).or.(j.gt.meshNBins(2))) cycle
+					if((j==0).or.(j.gt.meshNBins(2))) cycle yBinIndex
 					xBinIndex: do i=c1-1,c1+1
-						if((i==0).or.(i.gt.meshNBins(1))) cycle
-						if(all((/i,j,k/)==(/c1,c2,c3/))) cycle
-						adjBin = elBins(i,j,k)
-						binSz2 = size(adjBin%bin,1)
+						if((i==0).or.(i.gt.meshNBins(1))) cycle xBinIndex
+						if(all((/i,j,k/)==(/c1,c2,c3/))) cycle xBinIndex
+						binSz2 = size(elBins(i,j,k)%bin,1)
+						if(binSz2 .eq. 0) then
+							cycle xBinIndex
+						else
+							if(allocated(adjBin)) deallocate(adjBin)
+							allocate(adjBin(binSz2))
+						end if
+						adjBin = elBins(i,j,k)%bin
 						adjacentBin: do il=1,binSz2
 							shared = .false.
-							el2 = adjBin%bin(il)
+							el2 = adjBin(il)
 							ct2 = count(meshElems(el2)%neighbours(:,1)>0)
-							if(ct2 == 4) cycle
+							if(ct2 == 4) cycle adjacentBin
 							elNo2 = meshElems(el2)%nodes
 							call checkForSharedFace(elNo1,elNo2,shared,	&
 							fc1,fc2)
