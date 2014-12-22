@@ -2,6 +2,7 @@ module utilities
 
 	implicit none
 
+	integer,parameter :: commLogErr=1,commLogInf=2,commLogDeb=3
 	real(8),parameter :: pi=3.14159265358979d0,sigB=5.673d-8,			&
 	LARGE=1.0d3,MEGA=1.0d6,GIGA=1.0d9,SMALL=1.0d-3,MICRO=1.0d-6,		&
 	NANO=1.0d-9,ANGSTROM=1.d-10,PICO=1.0d-12,DPICO=1.d-13
@@ -136,15 +137,35 @@ module utilities
 		pt = a*ec(1,:)+s*ec(2,:)+t*ec(3,:)+u*ec(4,:)
 	end function selTetraPoint
 
+!	function selTriPoint(fcVerts) result(pt)
+!		real(8) :: r1,r2,a,b,c,pt(3)
+!		real(8),intent(in) :: fcVerts(3,3)
+
+!		call random_number(r1)
+!		call random_number(r2)
+!		a = 1.0d0-sqrt(1-r1)
+!    	b = (1.0d0-a)*r2
+!		c = 1-a-b
+!		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
+!	end function selTriPoint
+
 	function selTriPoint(fcVerts) result(pt)
 		real(8) :: r1,r2,a,b,c,pt(3)
 		real(8),intent(in) :: fcVerts(3,3)
 
 		call random_number(r1)
 		call random_number(r2)
-		a = 1.0d0-sqrt(1-r1)
-    	b = (1.0d0-a)*r2
-		c = 1-a-b
+		do while((r1+r2).gt. 1.d0)
+			r1 = 1.d0 - r1
+			r2 = 1.d0 - r2
+			if((r1+r2).gt. 1.d0) then
+				call random_number(r1)
+				call random_number(r2)
+			end if
+		end do
+		a = 1.d0 - r1 - r2
+		b = r1
+		c = r2 
 		pt = a*fcVerts(1,:)+b*fcVerts(2,:)+c*fcVerts(3,:)
 	end function selTriPoint
 
@@ -232,18 +253,18 @@ module utilities
         bc(2) = dot_product(na,ny)/dpna
         bc(3) = dot_product(na,nz)/dpna
         ptInside = (all(bc.gt. 0.0d0).and.(abs(sum(bc)-1.0d0).le.PICO))
-        if (.not.(ptInside)) then
-			write(*,*)"Point found not lying on face. Values: "
-			write(*,*) "point: "
-			write(*,'(3(f15.12,2x))') pt
-			write(*,*) "fcVerts: "
-			do i=1,3
-				write(*,'(3(f15.12,2x))') fcVerts(i,:)
-			end do
-			write(*,*) "bc: "
-	        write(*,'(3(f15.12,2x))') bc
-	        write(*,*) abs(sum(bc)-1.0d0)
-        end if
+!        if (.not.(ptInside)) then
+!			write(*,*)"Point found not lying on face. Values: "
+!			write(*,*) "point: "
+!			write(*,'(3(f15.12,2x))') pt
+!			write(*,*) "fcVerts: "
+!			do i=1,3
+!				write(*,'(3(f15.12,2x))') fcVerts(i,:)
+!			end do
+!			write(*,*) "bc: "
+!	        write(*,'(3(f15.12,2x))') bc
+!	        write(*,*) abs(sum(bc)-1.0d0)
+!        end if
     end function insideFaceCheck
 
 	function triangleArea(trVerts) result(trArea)
@@ -368,6 +389,20 @@ module utilities
 			read(unitNum,*)
 		end do
 	end subroutine skipReadLines
+
+	subroutine getFileNumLines(unitNum,nLines)
+		integer :: error
+		integer,intent(in) :: unitNum
+		integer,intent(out) :: nLines
+
+		nLines = 0
+		do
+			read(unitNum,*,iostat = error)
+			if (error .lt. 0) exit
+			nLines = nLines + 1
+		end do
+		close(unitNum)
+	end subroutine getFileNumLines
 
 	subroutine bisLocReal(A,val,ind1,ind2)
 		integer :: k,st,en,mid

@@ -145,24 +145,53 @@ module problem
 	end subroutine rtFEMLED
 
 	subroutine prepRtGen()
-		integer :: mBinNum(3)
+		integer :: domChk,emSfChk,bySfChk,chkNumSfs,mBinNum(3)
 		character(72) :: mFileName
 		real(8),allocatable :: pRatio(:)
 
 		call readRtData(mFileName,mBinNum)
 		call rtInit(mFileName,mBinNum)
+
+		emSfChk = rtNumCTEmSfs+rtNumCQEmSfs
+		if(emSfChk .ne. rtNumEmSfs)	then
+			write(*,'(a)') "Emitting surfaces not correctly specified."
+			write(*,'(a,2x,i2)')"Stated number of emitting surfaces: ",	&
+			rtNumEmSfs
+			write(*,'(a,2x,i2)')"The sum of CT and CQ surfaces: ",		&
+			emSfChk
+		end if
+		bySfChk = rtNumBBSfs+rtNumTrSfs+rtNumNPSfs+rtNumParSfs
+		if(meshNumDoms .eq. 1) then
+			chkNumSfs = meshNumSurfs
+		else
+			if(meshNumDoms .eq. 2) chkNumSfs = meshNumSurfs-2
+			if(meshNumDoms .eq. 3) chkNumSfs = meshNumSurfs-3
+			if(meshNumDoms .eq. 4) chkNumSfs = meshNumSurfs-6
+			if(meshNumDoms .gt. 4) write(*,'(a)') "Surfcheck skipped."
+		end if
+		if(bySfChk .ne. chkNumSfs) then
+			write(*,'(a)') "Boundary surface specification incorrect."
+			write(*,'(a,2x,i2)')"Mesh surface number: ",meshNumSurfs
+			write(*,'(a,2x,i2)')"The sum of all specified boundaries: ",&
+			bySfChk
+		end if
+
 		allocate(pRatio(1))
 		pRatio = (/1.d0/)
 		rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
 		rtBeta = rtKappa + rtSigma
 		rtAbsThr = rtKappa/rtBeta
 		call traceFromSurfLED(pRatio)
+		call setMeshNodalValues(rtNodalSrc,"S")
+		rtNodalSrc = 0.d0
+		call readFEMData(mFileName)
+		call runFem(mFileName)
 	end subroutine prepRtGen
 
 	subroutine readRtData(mFileName,mBinNum)
 		integer,parameter :: rtDatFileNum=102
 		integer :: mBinNum(3)
-		character(*),parameter :: rtDatFile='../data/ledRtMultiDomData.dat'		
+		character(*),parameter :: rtDatFile='../data/gridLedRtData.dat'		
 		character(72) :: mFileName
 
 		open(rtDatFileNum,file=rtDatFile)
@@ -178,6 +207,8 @@ module problem
 		read(rtDatFileNum,*) rtLimReEmDrops
 		read(rtDatFileNum,*)
 		read(rtDatFileNum,*) rtfResPre
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtLoggerMode
 
 		call skipReadLines(rtDatFileNum,3)
 		read(rtDatFileNum,*) meshNumDoms
@@ -251,19 +282,33 @@ module problem
 			call skipReadLines(rtDatFileNum,2)
 		end if
 		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumAbsSfs
-		if(rtNumAbsSfs .gt. 0) then
-			allocate (rtAbsSfIds(rtNumAbsSfs))
-			allocate (rtAbsSfVals(rtNumAbsSfs))
+		read(rtDatFileNum,*) rtNumParSfs
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumParDiffSfs
+		if(rtNumParDiffSfs .gt. 0) then
+			allocate(rtParDiffSfIds(rtNumParDiffSfs))
+			allocate(rtParDiffSfVals(rtNumParDiffSfs))
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtAbsSfIds
+			read(rtDatFileNum,*) rtParDiffSfIds
 			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtAbsSfVals
+			read(rtDatFileNum,*) rtParDiffSfVals
 		else
 			call skipReadLines(rtDatFileNum,4)
 		end if
-
+		read(rtDatFileNum,*)
+		read(rtDatFileNum,*) rtNumParSpecSfs
+		if(rtNumParSpecSfs .gt. 0) then
+			allocate(rtParSpecSfIds(rtNumParSpecSfs))
+			allocate(rtParSpecSfVals(rtNumParSpecSfs))
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtParSpecSfIds
+			read(rtDatFileNum,*)
+			read(rtDatFileNum,*) rtParSpecSfVals
+		else
+			call skipReadLines(rtDatFileNum,4)
+		end if
 		close(rtDatFileNum)
+
 	end subroutine readRtData
 
 	subroutine readRtSingleDomData(mFileName,mBinNum)
@@ -351,7 +396,7 @@ module problem
 
 	subroutine readFEMData(mFileName)
 		integer,parameter :: femDatFileNum=103
-		character(*),parameter :: femDatFile='../data/ledFemData.dat'		
+		character(*),parameter :: femDatFile='../data/gridLedFemData.dat'		
 		character(72) :: mFileName
 
 		open(femDatFileNum,file=femDatFile)
@@ -471,15 +516,14 @@ module problem
 		integer,allocatable :: bY(:,:),bB(:,:)
 		real(8) :: th,ph,stepTh,stepPh,tempD1,tempD2,pt(3),dir(3)
 		real(8),allocatable :: thetas(:),phis(:)
-		character(*),parameter :: fScrPts=commResDir//"scrPts.out",	&
-								  fScrBins=commResDir//"scrPolBins.out"
+!		character(*),parameter :: fScrPts=commResDir//"scrPts.out",	&
+!								  fScrBins=commResDir//"scrPolBins.out"
+		character :: fScrPts*72,fScrBins*72
 
+		fScrPts=commResDir//trim(adjustl(rtfResPre))//"scrPts.out"
+		fScrBins=commResDir//trim(adjustl(rtfResPre))//"scrPolBins.out"
 		open(nScrPts,file=fScrPts)
-		do
-			read(nScrPts,*,iostat = error)
-			if (error .lt. 0) exit
-			nLines = nLines + 1
-		end do
+		call getFileNumLines(nScrPts,nLines)
 		close(nScrPts)
 
 		write(*,*) "nTotalPoints: ", nLines
@@ -489,7 +533,7 @@ module problem
 		allocate(phis(nBins+1))
 		thetas(1) = 0.d0
 		phis(1) = 0.d0
-		do i=1,25
+		do i=1,nBins
 			thetas(i+1) = i*stepTh
 			phis(i+1) = i*stepPh
 		end do
@@ -556,13 +600,7 @@ module problem
 								  fScPtsBin=commResDir//"wallBins.out"
 
 		open(nScrIncs,file=fSfEmPts)
-		do
-			read(nScrIncs,*,iostat = error)
-			if (error .lt. 0) exit
-			nLines = nLines + 1
-		end do
-		close(nScrIncs)
-
+		call getFileNumLines(nScrIncs,nLines)
 		write(*,*) "nLines: ", nLines
 		edges = scrMax - scrMin
 		allocate(bY(nBins,nBins))

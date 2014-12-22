@@ -25,6 +25,7 @@ module mesh
 	end type surface
 
 	type elementBin
+		real(8) :: limLow(3),limHigh(3)
 		integer,allocatable :: bin(:)
 	end type elementBin
 
@@ -35,10 +36,12 @@ module mesh
 	meshVerts(:,:),meshStVals(:)
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
+	type(elementBin),allocatable :: meshElBins(:,:,:)
 !	Inputs
 	integer :: meshNBins(3) = (/2,2,2/)
 	character(72) :: meshFile = "a"
-	character(*),parameter :: meshNHFileSuff = "_nHood"
+	character(*),parameter :: meshNHFileSuff = "_nHood",				&
+							  meshBinFileSuff = "_bins"
 
 	contains
 
@@ -192,66 +195,154 @@ module mesh
 !-----------------------------------------------------------------------!
 
 	subroutine getElementNeighbours()
-		integer,parameter :: datFileNum=101
-		integer :: i,j,k,binSize,empBinCt,numTotBins,temp(8),values(8)
-		logical :: datFileExist
-		character(72) :: datFile
+		integer,parameter :: nNhFile=101,nBinFile=102
+		integer :: i,j,k,binSize,empBinCt,numTotBins,tempNBins(3),		&
+		temp(8),values(8)
+		logical :: nhFileExist,binFileExist
+		character(72) :: nhFile,binFile
 		character :: date*8,time*10,zone*5
-		type(elementBin),allocatable :: elBins(:,:,:)
 
-		datFile = trim(adjustl(meshFile))//meshNHFileSuff
-		datFile = commDatDir//trim(adjustl(datFile))//commDatExt
-		inquire(file=trim(adjustl(datFile)),exist=datFileExist)
-		if(datFileExist) then
-			open(datFileNum,file=datFile)
-			do i=1,meshNumElems
-				read(datFileNum,'(1x,4(i8,1x,i4))') temp
-				do j=1,4
-					meshElems(i)%neighbours(j,:) = temp(2*j-1:2*j)
-				end do
-			end do
-			close(datFileNum)
+		call date_and_time(date,time,zone,values)
+		write(*,'(a,1x,4(i4))')"Neighbourhood gathering started: ",values(5:8)		
+		nhFile = trim(adjustl(meshFile))//meshNHFileSuff
+		nhFile = commDatDir//trim(adjustl(nhFile))//commDatExt
+		inquire(file=trim(adjustl(nhFile)),exist=nhFileExist)
+		binFile = trim(adjustl(meshFile))//meshBinFileSuff
+		binFile = commDatDir//trim(adjustl(binFile))//commDatExt
+		inquire(file=trim(adjustl(binFile)),exist=binFileExist)
+		numTotBins = product(meshNBins)
+		if(nhFileExist.and.binFileExist) then
+			open(nBinFile,file=binfile)
+			read(nBinFile,*) tempNBins
+			close(nBinFile)
+			if(all(tempNBins .eq. meshNBins)) then
+				write(*,'(a)')"All neighbourhood data exists. Reading &
+				&files now ..."
+				call readElementBins(nBinFile,binFile,empBinCt)
+			else
+				goto 100
+			end if
+			call readElementNeighbours(nNhFile,nhFile)
+			call date_and_time(date,time,zone,values)
+			write(*,'(a,1x,4(i4))')"Neighbourhood gathering completed: ",values(5:8)
+			return
+		elseif(nhFileExist.and.(.not.binFileExist)) then
+100			write(*,'(a)')"Legacy neighbourhood data found. New bins &
+			&needed."
+			call binElements(empBinCt)
+			call writeElementNeighbourhoodData('bins')
+			call readElementNeighbours(nNhFile,nhFile)
+			return
+		elseif(binFileExist.and.(.not.nhFileExist)) then
+			open(nBinFile,file=binfile)
+			read(nBinFile,*) tempNBins
+			close(nBinFile)
+			if(all(tempNBins .eq. meshNBins)) then
+				write(*,'(a)')"Legacy bins found."
+				call readElementBins(nBinFile,binFile,empBinCt)
+				goto 200
+			else
+				goto 150
+			end if
 			return
 		else
-			numTotBins = product(meshNBins)
-			call date_and_time(date,time,zone,values)
-			write(*,'(a,1x,4(i4))')"Neighbourhood gathering started: ", values(5:8)
-			call binElements(elBins)
-			empBinCt = 0
-			do k=1,meshNBins(3)
-				do j=1,meshNBins(2)
-					do i=1,meshNBins(1)
-						binSize = size(elBins(i,j,k)%bin,1)
-						if(binSize .eq. 0) then
-							empBinCt = empBinCt + 1
-							cycle
-						end if
-						call findNeighboursWithinBin(elBins(i,j,k))
-						call findNeighboursAcrossBins(i,j,k,elBins)
-					end do
+			write(*,'(a)')"No neighbourhood data found. Generating ..."
+			goto 150
+			return
+		end if
+
+150		call binElements(empBinCt)
+		call writeElementNeighbourhoodData('bins')
+		
+200		do k=1,meshNBins(3)
+			do j=1,meshNBins(2)
+				do i=1,meshNBins(1)
+					binSize = size(meshElBins(i,j,k)%bin,1)
+					if(binSize .eq. 0) cycle
+					call findNeighboursWithinBin(i,j,k)
+					call findNeighboursAcrossBins(i,j,k)
 				end do
 			end do
-			call date_and_time(date,time,zone,values)
-			call writeElementNeighbourhoodData()
-			write(*,*)"Total number of bins assigned: ",numTotBins
-			write(*,*)"Number of empty bins found: ",empBinCt
-			write(*,'(a,1x,4(i4))')"Neighbourhood gathering completed: ",values(5:8)
-		end if
+		end do
+		call date_and_time(date,time,zone,values)
+		call writeElementNeighbourhoodData('nhbr')
+		write(*,*)"Total number of bins assigned: ",numTotBins
+		write(*,*)"Number of empty bins found: ",empBinCt
+		write(*,'(a,1x,4(i4))')"Neighbourhood gathering completed: ",values(5:8)
 	end subroutine getElementNeighbours
 
-	subroutine binElements(elBins)
-		integer :: i,j,k,sz,maxPerBin,endPt,check,cRs(3),elNodes(4)
-		integer,allocatable :: temp(:),lZ(:,:,:)
-		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),elVerts(4,3)
-		type(elementBin),allocatable,intent(out) :: elBins(:,:,:)
+	subroutine readElementNeighbours(nNhFile,nhFile)
+		integer,intent(in) :: nNhFile
+		integer :: i,j,k,temp(8)
+		character(*),intent(in) :: nhFile
+		
+		open(nNhFile,file=nhFile)
+		do i=1,meshNumElems
+			read(nNhFile,'(1x,4(i8,1x,i4))') temp
+			do j=1,4
+				meshElems(i)%neighbours(j,:) = temp(2*j-1:2*j)
+			end do
+		end do
+		close(nNhFile)
+	end subroutine readElementNeighbours
 
-		allocate(elBins(meshNBins(1),meshNBins(2),meshNBins(3)))
+	subroutine readElementBins(nBinFile,binFile,empBinCt)
+		integer,intent(in) :: nBinFile
+		integer,intent(out) :: empBinCt
+		integer :: i,j,k,a,b,c,binSz,m,n,p
+		character(*),intent(in) :: binFile
+
+		open(nBinFile,file=binFile)
+		read(nBinFile,*) meshNBins
+		if(.not.(allocated(meshElBins))) then
+			allocate(meshElBins(meshNBins(1),meshNBins(2),meshNBins(3)))
+		else
+			deallocate(meshElBins)
+			allocate(meshElBins(meshNBins(1),meshNBins(2),meshNBins(3)))
+		end if
+		empBinCt = 0
+		do k=1,meshNBins(3)
+			do j=1,meshNBins(2)
+				do i=1,meshNBins(1)
+					read(nBinFile,*) a,b,c,binSz
+					read(nBinFile,*) meshElBins(i,j,k)%limLow,	&
+					meshElBins(i,j,k)%limHigh
+					if(binSz .eq. 0) then
+						empBinCt = empBinCt+1
+						cycle
+					end if
+					allocate(meshElBins(i,j,k)%bin(binSz))
+					n = binSz
+					p=0
+					do while(n.ne.0)
+						m=min(n,10)
+						read(nBinFile,*)meshElBins(i,j,k)%bin(p+1:p+m)
+						p=p+m
+						n=n-m
+					enddo				
+				end do
+			end do
+		end do
+		close(nBinFile)		
+	end subroutine readElementBins
+
+	subroutine binElements(empBinCt)
+		integer :: i,j,k,sz,maxPerBin,endPt,check,cRs(3),elNodes(4)
+		integer,intent(out) :: empBinCt
+		integer,allocatable :: temp(:),lZ(:,:,:)
+		real(8) :: dmin(3),dmax(3),edges(3),elCent(3),binEdges(3),		&
+		elVerts(4,3)
+
+		if(.not.(allocated(meshElBins))) then
+			allocate(meshElBins(meshNBins(1),meshNBins(2),meshNBins(3)))
+		end if
 		allocate(lZ(meshNBins(1),meshNBins(2),meshNBins(3)))
 		lZ = 0
 		dmin = minval(meshVerts,1)
 		dmax = maxval(meshVerts,1)
 		edges = dmax-dmin
-		maxPerBin = 2*meshNumElems/product(meshNBins)
+		binEdges = edges/(real(meshNbins,8))
+		maxPerBin = 4*meshNumElems/product(meshNBins)
 
 		do i=1,meshNumElems
 			elNodes = meshElems(i)%nodes
@@ -262,14 +353,14 @@ module mesh
 			where(cRs == 0)
 				cRs = 1
 			end where
-			sz = size(elBins(cRs(1),cRs(2),cRs(3))%bin,1)
+			sz = size(meshElBins(cRs(1),cRs(2),cRs(3))%bin,1)
 			if(sz.gt.0) then
 				lZ(cRs(1),cRs(2),cRs(3)) = lZ(cRs(1),cRs(2),cRs(3)) + 1
-				elBins(cRs(1),cRs(2),cRs(3))%bin(lZ(cRs(1),cRs(2),cRs(3))) = i
+				meshElBins(cRs(1),cRs(2),cRs(3))%bin(lZ(cRs(1),cRs(2),cRs(3))) = i
 			else
-				allocate(elBins(cRs(1),cRs(2),cRs(3))%bin(4*maxPerBin))
-				elBins(cRs(1),cRs(2),cRs(3))%bin = 0
-				elBins(cRs(1),cRs(2),cRs(3))%bin(1) = i
+				allocate(meshElBins(cRs(1),cRs(2),cRs(3))%bin(4*maxPerBin))
+				meshElBins(cRs(1),cRs(2),cRs(3))%bin = 0
+				meshElBins(cRs(1),cRs(2),cRs(3))%bin(1) = i
 				lZ(cRs(1),cRs(2),cRs(3)) = 1
 			end if
 		end do
@@ -278,24 +369,31 @@ module mesh
 		do i=1,meshNBins(1)
 			do j=1,meshNBins(2)
 				do k=1,meshNBins(3)
-					if(lZ(i,j,k) .eq. 0) cycle
+					meshElBins(i,j,k)%limLow = real((/i-1,j-1,k-1/),8)*binEdges
+					meshElBins(i,j,k)%limHigh = real((/i,j,k/),8)*binEdges
+					if(lZ(i,j,k) .eq. 0) then
+						empBinCt = empBinCt + 1
+						cycle
+					end if
 					allocate(temp(lZ(i,j,k)))
 					check = check + lZ(i,j,k)
-					temp = elBins(i,j,k)%bin(1:lZ(i,j,k))
-					deallocate(elBins(i,j,k)%bin)
-					call move_alloc(temp,elBins(i,j,k)%bin)
+					temp = meshElBins(i,j,k)%bin(1:lZ(i,j,k))
+					deallocate(meshElBins(i,j,k)%bin)
+					call move_alloc(temp,meshElBins(i,j,k)%bin)
 				end do
 			end do
 		end do
 		write(*,'(i8,1x,a)')check, "elements binned"
 	end subroutine binElements
 
-	subroutine findNeighboursWithinBin(singleBin)
+	subroutine findNeighboursWithinBin(xin,yin,zin)
+		integer,intent(in) :: xin,yin,zin
 		integer :: i,j,binSize,ct1,ct2,el1,el2,fc1,fc2,ref,elNo1(4),	&
 		elNo2(4)
 		logical :: shared
-		type(elementBin),intent(in) :: singleBin
+		type(elementBin) :: singleBin
 
+		singleBin = meshElBins(xin,yin,zin)
 		binSize = size(singleBin%bin,1)
 		ref = 0
 		do i=1,binSize-1
@@ -320,17 +418,16 @@ module mesh
 		end do
 	end subroutine findNeighboursWithinBin
 
-	subroutine findNeighboursAcrossBins(c1,c2,c3,elBins)
+	subroutine findNeighboursAcrossBins(c1,c2,c3)
 		integer,intent(in) :: c1,c2,c3
 		integer :: i,j,k,ol,il,ct1,ct2,binSz1,binSz2,el1,el2,fc1,fc2,	&
 		elNo1(4),elNo2(4)
 		integer,allocatable :: givenBin(:),adjBin(:)
 		logical :: shared
-		type(elementBin),intent(in) :: elBins(:,:,:)
 
-		binSz1 = size(elBins(c1,c2,c3)%bin,1)
+		binSz1 = size(meshElBins(c1,c2,c3)%bin,1)
 		allocate(givenBin(binSz1))
-		givenBin = elBins(c1,c2,c3)%bin
+		givenBin = meshElBins(c1,c2,c3)%bin
 		currentBin: do ol=1,binSz1
 			el1 = givenBin(ol)
 			ct1 = count(meshElems(el1)%neighbours(:,1)>0)
@@ -343,14 +440,14 @@ module mesh
 					xBinIndex: do i=c1-1,c1+1
 						if((i==0).or.(i.gt.meshNBins(1))) cycle xBinIndex
 						if(all((/i,j,k/)==(/c1,c2,c3/))) cycle xBinIndex
-						binSz2 = size(elBins(i,j,k)%bin,1)
+						binSz2 = size(meshElBins(i,j,k)%bin,1)
 						if(binSz2 .eq. 0) then
 							cycle xBinIndex
 						else
 							if(allocated(adjBin)) deallocate(adjBin)
 							allocate(adjBin(binSz2))
 						end if
-						adjBin = elBins(i,j,k)%bin
+						adjBin = meshElBins(i,j,k)%bin
 						adjacentBin: do il=1,binSz2
 							shared = .false.
 							el2 = adjBin(il)
@@ -526,6 +623,19 @@ module mesh
 		spFnVals = (/1.0d0,pt/)
 		spFnVals = matmul(spFns,spFnVals)
 	end subroutine shapeFunctionsAtPoint
+
+	subroutine getPointBin(pt,numBins,dmin,dmax,pointBin)
+		integer,intent(in) :: numBins(3)
+		integer,intent(out) :: pointBin(3)
+		real(8),intent(in) :: pt(3),dmin(3),dmax(3)
+		real(8) :: edges(3)
+
+		edges = dmax-dmin
+		pointBin = ceiling(((pt-dmin)/edges)*real(numBins,8))
+		where(pointBin == 0)
+			pointBin = 1
+		end where
+	end subroutine getPointBin
 !-----------------------------------------------------------------------!
 !	End of the element level functions for the mesh
 !-----------------------------------------------------------------------!
@@ -611,19 +721,68 @@ module mesh
 !-----------------------------------------------------------------------!
 !	Subroutines to write elements of data processed previously.
 !-----------------------------------------------------------------------!
-	subroutine writeElementNeighbourhoodData()
-		integer,parameter :: datFileNum=101
-		integer :: i
-		character(72) :: datFile,wrtFmt
+	subroutine writeElementNeighbourhoodData(wrJob)
+		character(*),intent(in) :: wrJob
 
-		datFile = trim(adjustl(meshFile))//meshNHFileSuff
-		datFile = commDatDir//trim(adjustl(datFile))//commDatExt
-		wrtFmt = '(1x,4(i8,1x,i4))'
-		open(datFileNum,file=datFile)
-		do i=1,meshNumElems
-			write(datFileNum,wrtFmt) transpose(meshElems(i)%neighbours)
-		end do
+		if(wrJob .eq. 'bins') then
+			call writeElementBins()
+		elseif(wrJob .eq. 'nhbr') then
+			call writeElementNeighbours()
+		elseif(wrJob .eq. 'both') then
+			call writeElementBins()
+			call writeElementNeighbours()
+		else
+			write(*,'(a)')"Wrong write job specification, please review."
+		end if
+
 	end subroutine writeElementNeighbourhoodData
+
+	subroutine writeElementNeighbours()
+		integer,parameter :: nNhFile=101
+		integer :: i
+		character(*),parameter :: wFmt='(1x,4(i8,1x,i4))'
+		character(72) :: nhFile
+
+		nhFile = trim(adjustl(meshFile))//meshNHFileSuff
+		nhFile = commDatDir//trim(adjustl(nhFile))//commDatExt
+		open(nNhFile,file=nhFile)
+		do i=1,meshNumElems
+			write(nNhFile,wFmt) transpose(meshElems(i)%neighbours)
+		end do
+		close(nNhFile)
+	end subroutine writeElementNeighbours
+
+	subroutine writeElementBins()
+		integer,parameter :: nBinFile=102
+		integer ::  i,j,k,binSz,n,p,m
+		character(*),parameter :: wFmt='(10(1x,i8))'
+		character(72) :: binFile
+
+		binFile = trim(adjustl(meshFile))//meshBinFileSuff
+		binFile = commDatDir//trim(adjustl(binFile))//commDatExt
+		open(nBinFile,file=binFile)
+		write(nBinFile,'(3(i4,2x))') meshNBins
+		do k=1,meshNBins(3)
+			do j=1,meshNBins(2)
+				do i=1,meshNBins(1)
+					binSz = size(meshElBins(i,j,k)%bin,1)
+					write(nBinFile,'(3(i4,2x),i8)') i,j,k,binSz
+					write(nBinFile,'(6(e14.6,2x))')meshElBins(i,j,k)%limLow,&
+					meshElBins(i,j,k)%limHigh
+					if(binSz .eq. 0) cycle
+					n = binSz
+					p=0
+					do while(n.ne.0)
+						m=MIN(n,10)
+						write(nBinFile,wFmt)meshElBins(i,j,k)%bin(p+1:p+m)
+						p=p+m
+						n=n-m
+					enddo				
+				end do
+			end do
+		end do
+		close(nBinFile)
+	end subroutine writeElementBins
 !-----------------------------------------------------------------------!
 !	End of the writer subroutines
 !-----------------------------------------------------------------------!
