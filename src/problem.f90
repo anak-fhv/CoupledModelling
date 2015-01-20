@@ -9,6 +9,266 @@ module problem
 
 	contains
 
+	subroutine runCoupledModel(fMesh,fRt,fFem)
+		integer :: domChk,emSfChk,bySfChk,chkNumSfs,mBinNum(3)
+		character(32),intent(in) :: fMesh,fRt,fFem
+		character(32) :: fMeshDat,fRtDat,fFemDat
+		character(32) :: mFileName
+		real(8),allocatable :: pRatio(:)
+
+		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
+		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
+		fFemDat = commDatDir//trim(adjustl(fFem))//commDatExt
+		
+		call readMeshDataFile(fMeshDat)
+		call readRtDataFile(fRtDat)
+		call readFemDataFile(fFemDat)
+		call rtInit()
+		allocate(pRatio(1))
+		pRatio = (/1.d0/)
+		rtRefRayPow = 0.36d0/real(rtMCNumRays,8)	! Hard coded, needs to change
+		rtBeta = rtKappa + rtSigma
+		rtAbsThr = rtKappa/rtBeta
+		call traceFromSurfLED(pRatio)
+		call binScreenPolar(20)
+		call setMeshNodalValues(rtNodalSrc,"S")
+		open(963,file="../data/lmodNodalSrc.dat")
+		write(963,'(f20.12)') rtNodalSrc
+		close(963)
+		rtNodalSrc = 0.d0
+		femBCsKnown = .true.
+		call runFem()
+	end subroutine runCoupledModel
+
+	subroutine readMeshDataFile(fMeshDat)
+		integer,parameter :: nMeshDat=101
+		character(32),intent(in) :: fMeshDat
+
+		open(nMeshDat,file=fMeshDat)
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshFilePre
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNBins
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumNodes
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumElems
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumDoms
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumSurfs
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumBys
+		if(.not.(allocated(meshBys))) then
+			allocate(meshBys(meshNumBys))
+		end if
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshBys
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshNumIntfcs
+		if((meshNumBys+meshNumIntfcs) .ne. meshNumSurfs) then
+			write(*,'(a)')"Error in specifying the boundaries."
+			write(*,'(a)')"Number of boundaries specified differ &
+			& from number of surfaces in mesh."
+			stop
+		end if
+		if(meshNumIntfcs .gt. 0) then
+			if(.not.(allocated(meshIntfcs))) then
+				allocate(meshIntfcs(meshNumIntfcs))
+			end if
+			read(nMeshDat,*)
+			read(nMeshDat,*) meshIntfcs
+		else
+			call skipReadLines(nMeshDat,2)
+		end if
+		close(nMeshDat)
+	end subroutine readMeshDataFile
+
+	subroutine readRtDataFile(fRtDat)
+		integer,parameter :: nRtDat=102
+		integer :: rtNumDoms
+		character(32),intent(in) :: fRtDat
+
+		open(nRtDat,file=fRtDat)
+		call skipReadLines(nRtDat,2)
+		read(nRtDat,*) rtMCNumRays
+		read(nRtDat,*)
+		read(nRtDat,*) rtLimOutPts
+		read(nRtDat,*)
+		read(nRtDat,*) rtLimReEmDrops
+		read(nRtDat,*)
+		read(nRtDat,*) rtfResPre
+		read(nRtDat,*)
+		read(nRtDat,*) rtLoggerMode
+
+		call skipReadLines(nRtDat,3)
+		read(nRtDat,*) rtNumDoms
+		if(rtNumDoms .ne. meshNumDoms) then
+			write(*,'(a)')"Domain info in RT data incorrect."
+			write(*,'(a)')"Check RT data file."
+			stop
+		end if
+
+		if(.not.(allocated(rtKappa))) allocate(rtKappa(meshNumDoms))
+		if(.not.(allocated(rtSigma))) allocate(rtSigma(meshNumDoms))
+		if(.not.(allocated(rtRefrInd))) allocate(rtRefrInd(meshNumDoms))
+		if(.not.(allocated(rtReEmThr))) allocate(rtReEmThr(meshNumDoms))
+		if(.not.(allocated(rtBeta))) allocate(rtBeta(meshNumDoms))
+		if(.not.(allocated(rtAbsThr))) allocate(rtAbsThr(meshNumDoms))
+		read(nRtDat,*)
+		read(nRtDat,*) rtKappa
+		read(nRtDat,*)
+		read(nRtDat,*) rtSigma
+		read(nRtDat,*)
+		read(nRtDat,*) rtRefrInd
+		read(nRtDat,*)
+		read(nRtDat,*) rtReEmThr
+
+		call skipReadLines(nRtDat,3)
+		read(nRtDat,*) rtNumEmSfs
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumCTEmSfs
+		if(rtNumCTEmSfs .gt. 0) then
+			allocate(rtCTEmSfIds(rtNumCTEmSfs))
+			allocate(rtCTEmSfVals(rtNumCTEmSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtCTEmSfIds
+			read(nRtDat,*)
+			read(nRtDat,*) rtCTEmSfVals
+		else
+			call skipReadLines(nRtDat,4)
+		end if
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumCQEmSfs
+		if(rtNumCQEmSfs .gt. 0) then
+			allocate(rtCQEmSfIds(rtNumCQEmSfs))
+			allocate(rtCQEmSfVals(rtNumCQEmSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtCQEmSfIds
+			read(nRtDat,*)
+			read(nRtDat,*) rtCQEmSfVals
+		else
+			call skipReadLines(nRtDat,4)
+		end if
+
+		call skipReadLines(nRtDat,3)
+		read(nRtDat,*) rtNumActBys
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumBBSfs
+		if(rtNumBBSfs .gt. 0) then
+			allocate (rtBBSfIds(rtNumBBSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtBBSfIds
+		else
+			call skipReadLines(nRtDat,2)
+		end if
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumTrSfs
+		if(rtNumTrSfs .gt. 0) then
+			allocate (rtTrSfIds(rtNumTrSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtTrSfIds
+		else
+			call skipReadLines(nRtDat,2)
+		end if
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumNPSfs
+		if(rtNumNpSfs .gt. 0) then
+			allocate (rtNpSfIds(rtNumNpSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtNpSfIds
+		else
+			call skipReadLines(nRtDat,2)
+		end if
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumParSfs
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumParDiffSfs
+		if(rtNumParDiffSfs .gt. 0) then
+			allocate(rtParDiffSfIds(rtNumParDiffSfs))
+			allocate(rtParDiffSfVals(rtNumParDiffSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtParDiffSfIds
+			read(nRtDat,*)
+			read(nRtDat,*) rtParDiffSfVals
+		else
+			call skipReadLines(nRtDat,4)
+		end if
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumParSpecSfs
+		if(rtNumParSpecSfs .gt. 0) then
+			allocate(rtParSpecSfIds(rtNumParSpecSfs))
+			allocate(rtParSpecSfVals(rtNumParSpecSfs))
+			read(nRtDat,*)
+			read(nRtDat,*) rtParSpecSfIds
+			read(nRtDat,*)
+			read(nRtDat,*) rtParSpecSfVals
+		else
+			call skipReadLines(nRtDat,4)
+		end if
+		close(nRtDat)
+	end subroutine readRtDataFile
+
+	subroutine readFemDataFile(fFemDat)
+		integer,parameter :: nFemDat=103
+		integer :: i,femNumDoms
+		character(32),intent(in) :: fFemDat	
+
+		open(nFemDat,file=fFemDat)
+		call skipReadLines(nFemDat,2)
+		read(nFemDat,*) femSolverType
+		read(nFemDat,*)
+		read(nFemDat,*) femSolverMaxIter
+		read(nFemDat,*)
+		read(nFemDat,*) femResFile
+		read(nFemDat,*)
+		read(nFemDat,*) femTransient
+		if(femTransient) then
+			read(nFemDat,*)
+			read(nFemDat,*) femTrScheme
+		else
+			call skipReadLines(nFemDat,2)
+		end if
+
+		call skipReadLines(nFemDat,3)
+
+		read(nFemDat,*) femNumDoms
+		if(femNumDoms .ne. meshNumDoms) then
+			write(*,'(a)')"Domain info in RT data incorrect."
+			write(*,'(a)')"Check RT data file."
+			stop
+		end if
+		allocate(femKs(meshNumDoms))
+		allocate(femRhos(meshNumDoms))
+		allocate(femCaps(meshNumDoms))
+		allocate(femBCs(meshNumSurfs))
+		allocate(femBVals(meshNumSurfs))
+		read(nFemDat,*)
+        do i=1,meshNumDoms
+			read(nFemDat,*)
+            read(nFemDat,*) femKs(i)
+        end do
+		read(nFemDat,*)
+		do i=1,meshNumDoms
+			read(nFemDat,*)
+			read(nFemDat,*) femRhos(i)
+		end do
+		read(nFemDat,*)
+		do i=1,meshNumDoms
+			read(nFemDat,*)
+			read(nFemDat,*) femCaps(i)
+		end do
+		read(nFemDat,*)
+		read(nFemDat,*) femAmbT
+
+		call skipReadLines(nFemDat,3)
+
+        read(nFemDat,*) femBCs
+        read(nFemDat,*)
+        read(nFemDat,*) femBVals
+		close(nFemDat)
+	end subroutine readFemDataFile
+
 	subroutine femSimple()
 		integer,parameter :: femProbFilNum=102
 		integer,allocatable :: mConstTSfIds(:)
@@ -33,7 +293,7 @@ module problem
 			read(femProbFilNum,*) femTrScheme			
 		end if
 
-		call runFem(mFileName)
+		call runFem()
 	end subroutine femSimple
 
 	subroutine rtSimple()
@@ -99,217 +359,94 @@ module problem
 		end do
 	end subroutine rtSimple
 
+!	subroutine rtLED()
+!		integer :: i,mainCtr,rtIterNum,mBinNum(3)
+!		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
+!		character(72) :: mFileName
 
-	subroutine rtLED()
-		integer :: i,mainCtr,rtIterNum,mBinNum(3)
-		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
-		character(72) :: mFileName
+!		call readRtData(mFileName,mBinNum)
+!		rtIterNum = 1
+!		do mainCtr = 1,rtIterNum
+!			if(mainCtr .eq. 1) then
+!				call rtInit(mFileName,mBinNum)
+!				allocate(pRatio(1))
+!				pRatio = (/1.d0/)
+!				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
+!				rtBeta = rtKappa + rtSigma
+!				rtAbsThr = rtKappa/rtBeta
+!				call traceFromSurfLED(pRatio)
+!			end if
+!		end do	
+!	end subroutine rtLED
 
-		call readRtData(mFileName,mBinNum)
-		rtIterNum = 1
-		do mainCtr = 1,rtIterNum
-			if(mainCtr .eq. 1) then
-				call rtInit(mFileName,mBinNum)
-				allocate(pRatio(1))
-				pRatio = (/1.d0/)
-				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
-				rtBeta = rtKappa + rtSigma
-				rtAbsThr = rtKappa/rtBeta
-				call traceFromSurfLED(pRatio)
-			end if
-		end do	
-	end subroutine rtLED
+!	subroutine rtFEMLED()
+!		integer :: i,mainCtr,rtIterNum,mBinNum(3)
+!		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
+!		character(72) :: mFileName
 
-	subroutine rtFEMLED()
-		integer :: i,mainCtr,rtIterNum,mBinNum(3)
-		real(8),allocatable :: pRatio(:),mSfConstTs(:),mSfConstQs(:)
-		character(72) :: mFileName
+!		call readRtData(mFileName,mBinNum)
+!		rtIterNum = 1
+!		do mainCtr = 1,rtIterNum
+!			if(mainCtr .eq. 1) then
+!				call rtInit(mFileName,mBinNum)
+!				allocate(pRatio(1))
+!				pRatio = (/1.d0/)
+!				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
+!				rtBeta = rtKappa + rtSigma
+!				rtAbsThr = rtKappa/rtBeta
+!				call traceFromSurfLED(pRatio)
+!			end if
+!			call setMeshNodalValues(rtNodalSrc,"S")
+!			rtNodalSrc = 0.d0
+!			call readFEMData(mFileName)
+!			call runFem(mFileName)
+!		end do
+!	end subroutine rtFEMLED
 
-		call readRtData(mFileName,mBinNum)
-		rtIterNum = 1
-		do mainCtr = 1,rtIterNum
-			if(mainCtr .eq. 1) then
-				call rtInit(mFileName,mBinNum)
-				allocate(pRatio(1))
-				pRatio = (/1.d0/)
-				rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
-				rtBeta = rtKappa + rtSigma
-				rtAbsThr = rtKappa/rtBeta
-				call traceFromSurfLED(pRatio)
-			end if
-			call setMeshNodalValues(rtNodalSrc,"S")
-			rtNodalSrc = 0.d0
-			call readFEMData(mFileName)
-			call runFem(mFileName)
-		end do
-	end subroutine rtFEMLED
+!	subroutine prepRtGen()
+!		integer :: domChk,emSfChk,bySfChk,chkNumSfs,mBinNum(3)
+!		character(72) :: mFileName
+!		real(8),allocatable :: pRatio(:)
 
-	subroutine prepRtGen()
-		integer :: domChk,emSfChk,bySfChk,chkNumSfs,mBinNum(3)
-		character(72) :: mFileName
-		real(8),allocatable :: pRatio(:)
+!		call readRtData(mFileName,mBinNum)
+!		call rtInit(mFileName,mBinNum)
 
-		call readRtData(mFileName,mBinNum)
-		call rtInit(mFileName,mBinNum)
+!		emSfChk = rtNumCTEmSfs+rtNumCQEmSfs
+!		if(emSfChk .ne. rtNumEmSfs)	then
+!			write(*,'(a)') "Emitting surfaces not correctly specified."
+!			write(*,'(a,2x,i2)')"Stated number of emitting surfaces: ",	&
+!			rtNumEmSfs
+!			write(*,'(a,2x,i2)')"The sum of CT and CQ surfaces: ",		&
+!			emSfChk
+!		end if
+!		bySfChk = rtNumBBSfs+rtNumTrSfs+rtNumNPSfs+rtNumParSfs
+!		if(meshNumDoms .eq. 1) then
+!			chkNumSfs = meshNumSurfs
+!		else
+!			if(meshNumDoms .eq. 2) chkNumSfs = meshNumSurfs-2
+!			if(meshNumDoms .eq. 3) chkNumSfs = meshNumSurfs-3
+!			if(meshNumDoms .eq. 4) chkNumSfs = meshNumSurfs-6
+!			if(meshNumDoms .gt. 4) write(*,'(a)') "Surfcheck skipped."
+!		end if
+!		if(bySfChk .ne. chkNumSfs) then
+!			write(*,'(a)') "Boundary surface specification incorrect."
+!			write(*,'(a,2x,i2)')"Mesh surface number: ",meshNumSurfs
+!			write(*,'(a,2x,i2)')"The sum of all specified boundaries: ",&
+!			bySfChk
+!		end if
 
-		emSfChk = rtNumCTEmSfs+rtNumCQEmSfs
-		if(emSfChk .ne. rtNumEmSfs)	then
-			write(*,'(a)') "Emitting surfaces not correctly specified."
-			write(*,'(a,2x,i2)')"Stated number of emitting surfaces: ",	&
-			rtNumEmSfs
-			write(*,'(a,2x,i2)')"The sum of CT and CQ surfaces: ",		&
-			emSfChk
-		end if
-		bySfChk = rtNumBBSfs+rtNumTrSfs+rtNumNPSfs+rtNumParSfs
-		if(meshNumDoms .eq. 1) then
-			chkNumSfs = meshNumSurfs
-		else
-			if(meshNumDoms .eq. 2) chkNumSfs = meshNumSurfs-2
-			if(meshNumDoms .eq. 3) chkNumSfs = meshNumSurfs-3
-			if(meshNumDoms .eq. 4) chkNumSfs = meshNumSurfs-6
-			if(meshNumDoms .gt. 4) write(*,'(a)') "Surfcheck skipped."
-		end if
-		if(bySfChk .ne. chkNumSfs) then
-			write(*,'(a)') "Boundary surface specification incorrect."
-			write(*,'(a,2x,i2)')"Mesh surface number: ",meshNumSurfs
-			write(*,'(a,2x,i2)')"The sum of all specified boundaries: ",&
-			bySfChk
-		end if
-
-		allocate(pRatio(1))
-		pRatio = (/1.d0/)
-		rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
-		rtBeta = rtKappa + rtSigma
-		rtAbsThr = rtKappa/rtBeta
-		call traceFromSurfLED(pRatio)
-		call setMeshNodalValues(rtNodalSrc,"S")
-		rtNodalSrc = 0.d0
-		call readFEMData(mFileName)
-		call runFem(mFileName)
-	end subroutine prepRtGen
-
-	subroutine readRtData(mFileName,mBinNum)
-		integer,parameter :: rtDatFileNum=102
-		integer :: mBinNum(3)
-		character(*),parameter :: rtDatFile='../data/gridLedRtData.dat'		
-		character(72) :: mFileName
-
-		open(rtDatFileNum,file=rtDatFile)
-		call skipReadLines(rtDatFileNum,2)
-		read(rtDatFileNum,*) mFileName
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) mBinNum
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtMCNumRays
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtLimOutPts
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtLimReEmDrops
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtfResPre
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtLoggerMode
-
-		call skipReadLines(rtDatFileNum,3)
-		read(rtDatFileNum,*) meshNumDoms
-		if(.not.(allocated(rtKappa))) allocate(rtKappa(meshNumDoms))
-		if(.not.(allocated(rtSigma))) allocate(rtSigma(meshNumDoms))
-		if(.not.(allocated(rtRefrInd))) allocate(rtRefrInd(meshNumDoms))
-		if(.not.(allocated(rtReEmThr))) allocate(rtReEmThr(meshNumDoms))
-		if(.not.(allocated(rtBeta))) allocate(rtBeta(meshNumDoms))
-		if(.not.(allocated(rtAbsThr))) allocate(rtAbsThr(meshNumDoms))
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtKappa
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtSigma
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtRefrInd
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtReEmThr
-
-		call skipReadLines(rtDatFileNum,3)
-		read(rtDatFileNum,*) rtNumEmSfs
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumCTEmSfs
-		if(rtNumCTEmSfs .gt. 0) then
-			allocate(rtCTEmSfIds(rtNumCTEmSfs))
-			allocate(rtCTEmSfVals(rtNumCTEmSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtCTEmSfIds
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtCTEmSfVals
-		else
-			call skipReadLines(rtDatFileNum,4)
-		end if
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumCQEmSfs
-		if(rtNumCQEmSfs .gt. 0) then
-			allocate(rtCQEmSfIds(rtNumCQEmSfs))
-			allocate(rtCQEmSfVals(rtNumCQEmSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtCQEmSfIds
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtCQEmSfVals
-		else
-			call skipReadLines(rtDatFileNum,4)
-		end if
-
-		call skipReadLines(rtDatFileNum,3)
-		read(rtDatFileNum,*) rtNumBBSfs
-		if(rtNumBBSfs .gt. 0) then
-			allocate (rtBBSfIds(rtNumBBSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtBBSfIds
-		else
-			call skipReadLines(rtDatFileNum,2)
-		end if
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumTrSfs
-		if(rtNumTrSfs .gt. 0) then
-			allocate (rtTrSfIds(rtNumTrSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtTrSfIds
-		else
-			call skipReadLines(rtDatFileNum,2)
-		end if
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumNPSfs
-		if(rtNumNpSfs .gt. 0) then
-			allocate (rtNpSfIds(rtNumNpSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtNpSfIds
-		else
-			call skipReadLines(rtDatFileNum,2)
-		end if
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumParSfs
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumParDiffSfs
-		if(rtNumParDiffSfs .gt. 0) then
-			allocate(rtParDiffSfIds(rtNumParDiffSfs))
-			allocate(rtParDiffSfVals(rtNumParDiffSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtParDiffSfIds
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtParDiffSfVals
-		else
-			call skipReadLines(rtDatFileNum,4)
-		end if
-		read(rtDatFileNum,*)
-		read(rtDatFileNum,*) rtNumParSpecSfs
-		if(rtNumParSpecSfs .gt. 0) then
-			allocate(rtParSpecSfIds(rtNumParSpecSfs))
-			allocate(rtParSpecSfVals(rtNumParSpecSfs))
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtParSpecSfIds
-			read(rtDatFileNum,*)
-			read(rtDatFileNum,*) rtParSpecSfVals
-		else
-			call skipReadLines(rtDatFileNum,4)
-		end if
-		close(rtDatFileNum)
-
-	end subroutine readRtData
+!		allocate(pRatio(1))
+!		pRatio = (/1.d0/)
+!		rtRefRayPow = 0.355/rtMCNumRays	! Hard coded, needs to change
+!		rtBeta = rtKappa + rtSigma
+!		rtAbsThr = rtKappa/rtBeta
+!		call traceFromSurfLED(pRatio)
+!		call setMeshNodalValues(rtNodalSrc,"S")
+!		rtNodalSrc = 0.d0
+!		call readFEMData(mFileName)
+!		call runFem(mFileName)
+!		call binScreenPolar(20)
+!	end subroutine prepRtGen
 
 	subroutine readRtSingleDomData(mFileName,mBinNum)
 		integer,parameter :: rtDatFileNum=102
@@ -394,30 +531,7 @@ module problem
 		close(rtDatFileNum)
 	end subroutine readRtSingleDomData
 
-	subroutine readFEMData(mFileName)
-		integer,parameter :: femDatFileNum=103
-		character(*),parameter :: femDatFile='../data/gridLedFemData.dat'		
-		character(72) :: mFileName
 
-		open(femDatFileNum,file=femDatFile)
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) mFileName
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) femByFile
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) femResFile
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) femTransient
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) femSolverMaxIter
-		read(femDatFileNum,*)
-		read(femDatFileNum,*) femSolverType
-		if(femTransient) then
-			read(femDatFileNum,*)
-			read(femDatFileNum,*) femTrScheme			
-		end if
-
-	end subroutine readFEMData
 
 	subroutine rtFemSimple()
 		integer,parameter :: rtDatFileNum=101,femProbFilNum=102
@@ -490,7 +604,7 @@ module problem
 			call getAveragedSource(oldSrc,avSrc)
 			rtNodalSrc = 0.0d0
 			call setMeshNodalValues(avSrc,"S")
-			call runFem(mFileName)
+			call runFem()
 			oldSrc = avSrc
 			deallocate(avSrc)
 			write(*,'(a,2x,i4)')"Main iteration number: ", mainCtr
@@ -520,8 +634,8 @@ module problem
 !								  fScrBins=commResDir//"scrPolBins.out"
 		character :: fScrPts*72,fScrBins*72
 
-		fScrPts=commResDir//trim(adjustl(rtfResPre))//"scrPts.out"
-		fScrBins=commResDir//trim(adjustl(rtfResPre))//"scrPolBins.out"
+		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
+		fScrBins=commResDir//trim(adjustl(rtfResPre))//"_scrPolBins.res"
 		open(nScrPts,file=fScrPts)
 		call getFileNumLines(nScrPts,nLines)
 		close(nScrPts)

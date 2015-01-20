@@ -3,9 +3,10 @@
 # Makefile variables
 FC      = ifort
 # -g: use this flag only if debugging is required
-FCFLAGS = -parallel -mkl -traceback -openmp -CB
+FCFLAGS = -parallel -mkl -traceback -CB -heap-arrays
 VPATH	:= src
 OBJDIR	:= ../obj
+RESDIR  := ../results
 LIBPATH := /opt/intel/mkl/lib/intel64
 LIBS    := $(LIBPATH)/libmkl_intel_lp64.a \
   			$(LIBPATH)/libmkl_core.a  \
@@ -55,3 +56,5 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf *.out
 	rm -rf *.o *.mod
+clear:
+	rm $(RESDIR)/*.out

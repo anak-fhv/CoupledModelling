@@ -27,9 +27,10 @@ module fem
 
 	contains
 
-	subroutine runFem(mFileName)
-		integer :: pbDatFileNum
-		character(*),intent(in) :: mFileName
+!	subroutine runFem(mFileName)
+	subroutine runFem()
+!		integer :: pbDatFileNum
+!		character(*),intent(in) :: mFileName
 
 !		if(femSysAssembled) then
 !			if(norm2(meshSources-femSrc) .lt. NANO) then
@@ -42,7 +43,7 @@ module fem
 !			call writeVtkResults()
 !		else
 			if(.not.(allocated(meshElems))) then
-				call femInitMesh(mFileName)
+				call femInitMesh()
 			end if
 			if(.not.(femBCsKnown)) then
 				call getBoundaryConditions()
@@ -63,10 +64,10 @@ module fem
 !		end if
 	end subroutine runFem
 
-	subroutine femInitMesh(mFileName)
-		character(*),intent(in) :: mFileName
+	subroutine femInitMesh()
+!		character(*),intent(in) :: mFileName
 
-		meshFile = trim(adjustl(mFileName))
+!		meshFile = trim(adjustl(mFileName))
 		call readMesh()
 	end subroutine femInitMesh
 
@@ -695,7 +696,7 @@ module fem
 		integer :: i,j,k
 		integer,intent(in) :: ia(:),ja(:)
 		integer,intent(out) :: iter
-		real(8),parameter :: cc=1e-9
+		real(8),parameter :: cc=2e-9
 		real(8) :: alpha,beta,delta0,delta,delta_old,omega
 		real(8),intent(in) :: acsr(:),b(:),initGuess(:)
 		real(8),allocatable :: r(:),p(:),s(:),rst(:),temp1(:),temp2(:)

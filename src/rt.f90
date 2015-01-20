@@ -18,10 +18,11 @@ module rt
 	rtNumBBSfs,rtNumTrSfs,rtNumNpSfs,rtNumParSfs,rtLimOutPts,			&
 	rtLimReEmDrops,rtNtraces,rtBBAbsNum,rtTrExitNum,rtNumParDiffSfs,	&
 	rtNumParSpecSfs,rtParSfAbsNum,rtAbsNoReEmCt,rtInVolAbsCt,			&
-	rtTransBetnDomsCt,rtLoggerMode
+	rtTransBetnDomsCt,rtLoggerMode,rtNumActBys
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
-	rtWallInf(:),rtParSfIds(:),rtParDiffSfIds(:),rtParSpecSfIds(:)
+	rtWallInf(:),rtParSfIds(:),rtParDiffSfIds(:),rtParSpecSfIds(:),		&
+	rtActBys(:)
 	real(8) :: rtRefRayPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
 	rtCTEmSfVals(:),rtCQEmSfVals(:),rtBeta(:),rtKappa(:),rtSigma(:),	&
@@ -32,12 +33,14 @@ module rt
 
 	contains
 
-	subroutine rtInit(mFileName,mBinNum)
+!	subroutine rtInit(mFileName,mBinNum)
+	subroutine rtInit()
 		integer :: i
-		integer,intent(in) :: mBinNum(3)
-		character(*),intent(in) :: mFileName
+!		integer,intent(in) :: mBinNum(3)
+!		character(*),intent(in) :: mFileName
 
-		call rtInitMesh(mFileName,mBinNum)
+!		call rtInitMesh(mFileName,mBinNum)
+		call rtInitMesh()
 		if(.not.(allocated(rtEmSfIds))) then
 			allocate(rtEmSfIds(rtNumEmSfs))
 		end if
@@ -46,9 +49,13 @@ module rt
 				allocate(rtParSfIds(rtNumParSfs))
 			end if
 		end if
-		call popLargeSphDiffMuTable()
+		if(.not.(allocated(rtActBys))) then
+			allocate(rtActBys(rtNumActBys))
+		end if
 		rtEmSfIds = (/rtCTEmSfIds,rtCQEmSfIds/)
 		rtParSfIds = (/rtParDiffSfIds,rtParSpecSfIds/)
+		rtActBys = (/rtBBSfIds,rtTrSfIds,rtNpSfIds,rtParSfIds/)
+		call popLargeSphDiffMuTable()
 		if(rtNumCTEmSfs .gt. 0) then
 			do i=1,rtNumCTEmSfs
 				call setSurfaceConstTemperature(rtCTEmSfIds(i),			&
@@ -88,11 +95,12 @@ module rt
 		call CreateUniformEmissionSurfaces()
 	end subroutine rtInit
 
-	subroutine rtInitMesh(mFileName,mBinNum)
-		integer,intent(in) :: mBinNum(3)
-		character(*),intent(in) :: mFileName
-		meshFile = trim(adjustl(mFileName))
-		meshNBins = mBinNum
+!	subroutine rtInitMesh(mFileName,mBinNum)
+	subroutine rtInitMesh()
+!		integer,intent(in) :: mBinNum(3)
+!		character(*),intent(in) :: mFileName
+!		meshFile = trim(adjustl(mFileName))
+!		meshNBins = mBinNum
 		call readMesh()
 		call getElementNeighbours()
 		call populateSurfaceFaceAreas()
@@ -647,9 +655,17 @@ module rt
     	ph = 2.0d0*pi*ph
 		dir = getDirectionCoords(th,ph)
 
-		if(dot_product(fcNorm,dir) .lt. 0) then
-			th = pi-th
-			dir = getDirectionCoords(th,ph)
+		if(dot_product(fcNorm,dir) .lt. 0.d0) then
+!			th = pi-th
+!			dir = getDirectionCoords(th,ph)
+			do while(dot_product(fcNorm,dir).lt. 0.d0)
+				call random_number(th)
+				th = asin(sqrt(th))
+				call random_number(ph)
+				ph = 2.0d0*pi*ph
+				dir = getDirectionCoords(th,ph)				
+			end do
+
 		end if
 
 	end function getFaceDiffRayDir
@@ -685,7 +701,7 @@ module rt
 		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,nBotPts=198,	&
 		lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
-		lambda,elNodes(4)
+		lambda,elNodes(4),plcHlder
 		real(8),parameter :: scrLoc=3.d0
 		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
 		endDir(3),ptScr(3),spFnVals(4)
@@ -727,6 +743,9 @@ module rt
 !			Tracing line
 			stEl = emEl
 100			rtNtraces = rtNtraces + 1
+			if(rtNtraces .eq. 61) then
+				plcHlder = rtNtraces
+			end if
 			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
 			byAbs,endEl,endPt,endDir)
 !			Handle the exit of a ray from the volume
@@ -882,7 +901,7 @@ module rt
 	subroutine traceTrans(rN,stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
 	byAbs,endEl,endPt,endDir)
 		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,cDom,nhbrEl,		&
-		nhbrDom,parById,elNodes(4)
+		nhbrDom,nhbrSf,parById,elNodes(4)
 		integer,intent(in) :: stEl,rN,nFOutPts
 		integer,intent(out) :: endEl
 		real(8) :: lTrav,lToFc,optPath,cBeta,pt(3),dir(3),newDir(3),	&
@@ -890,7 +909,7 @@ module rt
 		real(8),intent(in) :: pInt,stPt(3),stDir(3)
 		real(8),intent(out) :: endPt(3),endDir(3)
 		logical :: inFc,bbSfChk,trSfChk,npSfChk,trans,parSfChk,			&
-		parDiffSfChk,parSpecSfChk,byAbsChk
+		parDiffSfChk,parSpecSfChk,byAbsChk,actByChk
 		logical,intent(out) :: outPt,vExit,byAbs
 
 		cEl = stEl
@@ -949,13 +968,16 @@ module rt
 				optPath = MEGA
 				exit
 			end if
-!			Check for neighbouring faces
+!			Check if the neighbouring face is a system boundary or iface
 			nhbrFc = meshElems(cEl)%neighbours(newFc,2)
-			if(nhbrFc .lt. 0) then
-				bbSfChk = (count(-nhbrFc==rtBBSfIds) .gt. 0)
-				trSfChk = (count(-nhbrFc==rtTrSfIds) .gt. 0)
-				npSfChk = (count(-nhbrFc==rtNPSfIds) .gt. 0)
-				parSfChk = (count(-nhbrFc==rtParSfIds) .gt. 0)
+			nhbrSf = meshElems(cEl)%neighbours(newFc,3)
+			actByChk = (count(nhbrSf==rtActBys) .gt. 0)
+			if(actByChk) then
+!			if(nhbrFc .lt. 0) then
+				bbSfChk = (count(nhbrSf==rtBBSfIds) .gt. 0)
+				trSfChk = (count(nhbrSf==rtTrSfIds) .gt. 0)
+				npSfChk = (count(nhbrSf==rtNPSfIds) .gt. 0)
+				parSfChk = (count(nhbrSf==rtParSfIds) .gt. 0)
 				if(bbSfChk) then
 					endEl = cEl
 					endPt = pt
@@ -985,11 +1007,10 @@ module rt
 					dir = newDir
 				end if
 				if(parSfChk) then
-					parDiffSfChk = (count(-nhbrFc==rtParDiffSfIds).gt. 0)
-					parSpecSfChk = (count(-nhbrFc==rtParSpecSfIds).gt. 0)
+					parDiffSfChk = (count(nhbrSf==rtParDiffSfIds).gt. 0)
+					parSpecSfChk = (count(nhbrSf==rtParSpecSfIds).gt. 0)
 					if(parDiffSfChk) then
-						parById = minloc(rtParDiffSfIds,1,				&
-						rtParDiffSfIds==-nhbrFc)
+						parById = minloc(rtParDiffSfIds,1,rtParDiffSfIds==nhbrSf)
 						call diffParBoundary(ec,newFc,parById,newDir,	&
 						byAbsChk)
 						if(byAbsChk) then
@@ -1005,8 +1026,7 @@ module rt
 						end if
 					end if
 					if(parSpecSfChk) then
-						parById = minloc(rtParSpecSfIds,1,				&
-						rtParSpecSfIds==-nhbrFc)
+						parById = minloc(rtParSpecSfIds,1,rtParSpecSfIds==nhbrSf)
 						call specParBoundary(ec,newFc,parById,dir,		&
 						newDir,byAbsChk)
 						if(byAbsChk) then
@@ -1023,6 +1043,7 @@ module rt
 					end if
 				end if
 			else
+!			Check for neighbouring faces
 				nhbrEl = meshElems(cEl)%neighbours(newFc,1)
 				nhbrDom = meshElems(nhbrEl)%domain
 				if(nhbrDom .ne. cDom) then

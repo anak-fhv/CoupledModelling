@@ -12,7 +12,7 @@ module mesh
 
 !	Declare all relevant types
 	type tetraElement
-		integer :: domain,nodes(4),neighbours(4,2)
+		integer :: domain,nodes(4),neighbours(4,3)
 		real(8) :: volume,centroid(3)
 	end type tetraElement
 
@@ -22,6 +22,7 @@ module mesh
 		integer,allocatable :: elNum(:),fcNum(:)
 		real(8) :: totalArea
 		real(8),allocatable :: fcArea(:)
+		logical :: iFace
 	end type surface
 
 	type elementBin
@@ -30,8 +31,10 @@ module mesh
 	end type elementBin
 
 !	Module variables
-	integer :: meshNumNodes,meshNumElems,meshNumDoms,meshNumSurfs
-	integer,allocatable :: meshStColPtr(:),meshStRowPtr(:)
+	integer :: meshNumNodes,meshNumElems,meshNumDoms,meshNumSurfs,		&
+	meshNumBys,meshNumIntfcs
+	integer,allocatable :: meshBys(:),meshIntfcs(:),meshStColPtr(:),	&
+	meshStRowPtr(:)
 	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
 	meshVerts(:,:),meshStVals(:)
 	type(tetraElement),allocatable :: meshElems(:)
@@ -39,7 +42,7 @@ module mesh
 	type(elementBin),allocatable :: meshElBins(:,:,:)
 !	Inputs
 	integer :: meshNBins(3) = (/2,2,2/)
-	character(72) :: meshFile = "a"
+	character(72) :: meshFilePre = "a"
 	character(*),parameter :: meshNHFileSuff = "_nHood",				&
 							  meshBinFileSuff = "_bins"
 
@@ -57,7 +60,7 @@ module mesh
 		integer :: mDets(7)
 		character(72) :: meshFileName
 
-		meshFileName = commDatDir//trim(adjustl(meshFile))//commMeshExt
+		meshFileName = commDatDir//trim(adjustl(meshFilePre))//commMeshExt
         call openmeshfile(fNum,meshFileName)
         call readmeshdetails(fNum,mDets)
 		meshNumNodes = mDets(1)
@@ -150,7 +153,9 @@ module mesh
             read(fNum,'(i8,1x,a)') numSfFaces,surfName
 			meshSurfs(i)%numFcs = numSfFaces
 			meshSurfs(i)%sfName = surfName
-			l = (verify('iface',surfName) .ne. 0)
+!			l = (verify('iface',surfName) .ne. 0)
+			l = (count(i==meshIntfcs) .gt. 0)
+			meshSurfs(i)%iFace = l
 			allocate(meshSurfs(i)%elNum(numSfFaces))
 			allocate(meshSurfs(i)%fcNum(numSfFaces))
 			if(mod(numSfFaces,5) == 0) then
@@ -169,8 +174,11 @@ module mesh
                         meshSurfs(i)%elNum(ct) = elNum
 						meshSurfs(i)%fcNum(ct) = fcNum
 						if(l) then
-							meshElems(elNum)%neighbours(fcNum,:) = 		&
-							(/elNum,-meshSurfs(i)%sfId/)
+							meshElems(elNum)%neighbours(fcNum,3) = i
+						else
+							meshElems(elNum)%neighbours(fcNum,1) = elNum
+							meshElems(elNum)%neighbours(fcNum,2) = -1
+							meshElems(elNum)%neighbours(fcNum,3) = i
 						end if
                     end if
                 end do
@@ -204,10 +212,10 @@ module mesh
 
 		call date_and_time(date,time,zone,values)
 		write(*,'(a,1x,4(i4))')"Neighbourhood gathering started: ",values(5:8)		
-		nhFile = trim(adjustl(meshFile))//meshNHFileSuff
+		nhFile = trim(adjustl(meshFilePre))//meshNHFileSuff
 		nhFile = commDatDir//trim(adjustl(nhFile))//commDatExt
 		inquire(file=trim(adjustl(nhFile)),exist=nhFileExist)
-		binFile = trim(adjustl(meshFile))//meshBinFileSuff
+		binFile = trim(adjustl(meshFilePre))//meshBinFileSuff
 		binFile = commDatDir//trim(adjustl(binFile))//commDatExt
 		inquire(file=trim(adjustl(binFile)),exist=binFileExist)
 		numTotBins = product(meshNBins)
@@ -273,14 +281,14 @@ module mesh
 
 	subroutine readElementNeighbours(nNhFile,nhFile)
 		integer,intent(in) :: nNhFile
-		integer :: i,j,k,temp(8)
+		integer :: i,j,k,temp(12)
 		character(*),intent(in) :: nhFile
 		
 		open(nNhFile,file=nhFile)
 		do i=1,meshNumElems
-			read(nNhFile,'(1x,4(i8,1x,i4))') temp
+			read(nNhFile,'(1x,4(i8,1x,i4,1x,i4))') temp
 			do j=1,4
-				meshElems(i)%neighbours(j,:) = temp(2*j-1:2*j)
+				meshElems(i)%neighbours(j,:) = temp(3*j-2:3*j)
 			end do
 		end do
 		close(nNhFile)
@@ -740,10 +748,10 @@ module mesh
 	subroutine writeElementNeighbours()
 		integer,parameter :: nNhFile=101
 		integer :: i
-		character(*),parameter :: wFmt='(1x,4(i8,1x,i4))'
+		character(*),parameter :: wFmt='(1x,4(i8,1x,i4,1x,i4))'
 		character(72) :: nhFile
 
-		nhFile = trim(adjustl(meshFile))//meshNHFileSuff
+		nhFile = trim(adjustl(meshFilePre))//meshNHFileSuff
 		nhFile = commDatDir//trim(adjustl(nhFile))//commDatExt
 		open(nNhFile,file=nhFile)
 		do i=1,meshNumElems
@@ -758,7 +766,7 @@ module mesh
 		character(*),parameter :: wFmt='(10(1x,i8))'
 		character(72) :: binFile
 
-		binFile = trim(adjustl(meshFile))//meshBinFileSuff
+		binFile = trim(adjustl(meshFilePre))//meshBinFileSuff
 		binFile = commDatDir//trim(adjustl(binFile))//commDatExt
 		open(nBinFile,file=binFile)
 		write(nBinFile,'(3(i4,2x))') meshNBins
