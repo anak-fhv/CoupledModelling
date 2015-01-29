@@ -36,13 +36,8 @@ module rt
 
 	contains
 
-!	subroutine rtInit(mFileName,mBinNum)
 	subroutine rtInit()
 		integer :: i
-!		integer,intent(in) :: mBinNum(3)
-!		character(*),intent(in) :: mFileName
-
-!		call rtInitMesh(mFileName,mBinNum)
 		call rtInitMesh()
 		if(.not.(allocated(rtEmSfIds))) then
 			allocate(rtEmSfIds(rtNumEmSfs))
@@ -98,12 +93,7 @@ module rt
 		call CreateUniformEmissionSurfaces()
 	end subroutine rtInit
 
-!	subroutine rtInitMesh(mFileName,mBinNum)
 	subroutine rtInitMesh()
-!		integer,intent(in) :: mBinNum(3)
-!		character(*),intent(in) :: mFileName
-!		meshFile = trim(adjustl(mFileName))
-!		meshNBins = mBinNum
 		call readMesh()
 		call getElementNeighbours()
 		call populateSurfaceFaceAreas()
@@ -447,9 +437,7 @@ module rt
 		dirOut = getFaceDiffRayDir(fcVerts,fcNorm)
 	end function diffuseReflection
 
-!	subroutine transBetweenDoms(ec,fcNum,cDom,nhbrDom,dirIn,trans,dirOut)
 	subroutine transBetweenDoms(ec,fcNum,nhbrDom,dirIn,trans,dirOut)
-!		integer,intent(in) :: fcNum,cDom,nhbrDom
 		integer,intent(in) :: fcNum,nhbrDom
 		integer :: remNo,fcNodes(3)
 		real(8) :: rIndRatio,th1,th2,cosInc,sinTht,rhoFresnel,frRefChk,	&
@@ -471,7 +459,6 @@ module rt
             fcNorm = -fcNorm
         end if
 		th1 = acos(cosInc)
-!		rIndRatio = (rtRefrInd(cDom)/rtRefrInd(nhbrDom))
 		n1 = rtRefrInd(rtCurrDom,rtCurrLambda)
 		n2 = rtRefrInd(nhbrDom,rtCurrLambda)
 		rIndRatio = n1/n2
@@ -503,9 +490,7 @@ module rt
 		end if
 	end subroutine transBetweenDoms
 
-!	subroutine transExit(ec,fcNum,cDom,dirIn,trans,dirOut)
 	subroutine transExit(ec,fcNum,dirIn,trans,dirOut)
-!		integer,intent(in) :: fcNum,cDom
 		integer,intent(in) :: fcNum
 		integer :: remNo,fcNodes(3)
 		real(8),parameter :: n2 = 1.d0	! Air is the second medium
@@ -527,7 +512,6 @@ module rt
             fcNorm = -fcNorm
         end if
 		th1 = acos(cosInc)
-!		rIndRatio = (rtRefrInd(cDom)/n2)
 		rIndRatio = rtRefrInd(rtCurrDom,rtCurrLambda)/n2
 		sinTht = rIndRatio*sqrt(1-cosInc**2.d0)
 		th2 = asin(sinTht)
@@ -594,7 +578,6 @@ module rt
 		elNoTemps = meshTemperatures(elNodes)
 		elVol = getElementVolume(elNum)
 		elCentTemp = sum(elNoTemps)/4.0d0
-!		elKappa = rtKappa(elDom)
 		elKappa = rtKappa(elDom,rtCurrLambda)
 		elEmPow = 4.0d0*elKappa*sigB*(elCentTemp**4.0d0)*elVol
 		elNumRays = nint(elEmPow/rtRefRayPow)
@@ -632,6 +615,10 @@ module rt
 		real(8) :: s,rMuNew,g
 
 		g = rtAnisFac(rtCurrDom,rtCurrLambda)
+		if(abs(g) .lt. MICRO) then
+			mu = 1.d0 - 2.d0*rMu
+			return
+		end if
 
 		s = 2.d0*rMu - 1.d0
 		mu = (1+g**2.d0-((1-g**2.d0)/(1+g*s))**2.d0)
@@ -717,8 +704,6 @@ module rt
 		dir = getDirectionCoords(th,ph)
 
 		if(dot_product(fcNorm,dir) .lt. 0.d0) then
-!			th = pi-th
-!			dir = getDirectionCoords(th,ph)
 			do while(dot_product(fcNorm,dir).lt. 0.d0)
 				call random_number(th)
 				th = asin(sqrt(th))
@@ -757,17 +742,14 @@ module rt
 !	LED algorithms for multidomain tracing
 !------------------------------------------------------------------------
 
-!	subroutine traceFromSurfLED(pRatio)
 	subroutine traceFromSurfLED()
 		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrPts=193,		&
 		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,nBotPts=198,	&
 		lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
 		lambda,elNodes(4),plcHlder
-!		real(8),parameter :: scrLoc=3.d0
 		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
 		endDir(3),ptScr(3),spFnVals(4)
-!		real(8),intent(in) :: pRatio(:)
 		logical :: outPt,vExit,byAbs,scatter,reEmission
 		character(*),parameter :: wFmt = '(a,2x,i8)'
 		character :: fSfEmPts*72,fSfAbPts*72,fSctDirs*72,fReEmDrp*72,	&
@@ -795,8 +777,6 @@ module rt
 
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
-!			write(*,*) "Ray: ", i
-!			call startRayFromSurf(pRatio,emEl,emFc,pInt,pt,dir)
 			call startRayFromSurf(emEl,emFc,pInt,pt,dir)
 			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
 			lambda = lcBlue
@@ -833,7 +813,6 @@ module rt
 				cycle
 			end if
 
-!			call checkScatter(endEl,lambda,scatter)
 			call checkScatter(scatter)
 			if(scatter) then
 				reEmCt = reEmCt+1
@@ -861,7 +840,6 @@ module rt
 				write(nSctDirs,'(4(e16.9,2x))') dir,tcos
 				goto 100
 			else
-!				call checkReemission(endEl,lambda,reEmission)
 				call checkReEmission(reEmission)
 				if(reEmission) then
 					reEmCt = reEmCt+1
@@ -914,47 +892,6 @@ module rt
 		close(nOutPts)
 		close(nBotPts)
 	end subroutine traceFromSurfLED
-
-!	subroutine checkScatter(endEl,lambda,sctr)
-!		integer,parameter :: lcYellow = 6
-!		integer,intent(in) :: endEl,lambda
-!		integer :: elDom
-!		real(8) :: rAbs
-!		logical,intent(out) :: sctr
-
-!		elDom = meshElems(endEl)%domain
-!		if(rtSigma(elDom) .lt. NANO) then
-!			sctr = .false.
-!			return
-!		end if
-!		call random_number(rAbs)
-!		if(rAbs .gt. rtAbsThr(elDom)) then
-!			sctr = .true.
-!		else
-!			sctr = .false.
-!		end if
-!	end subroutine checkScatter
-
-!	subroutine checkReemission(endEl,lambda,reEmission)
-!		integer,parameter :: lcYellow = 6
-!		integer,intent(in) :: endEl,lambda
-!		integer :: elDom
-!		real(8) :: rReem
-!		logical,intent(out) :: reEmission
-
-!		elDom = meshElems(endEl)%domain
-!		reEmission = .false.
-!		if(lambda .eq. lcYellow) then
-!			reEmission = .true.
-!			return
-!		end if
-!		call random_number(rReem)
-!		if(rReem .lt. rtReEmThr(elDom)) then
-!			reEmission = .true.
-!		else
-!			reEmission = .false.
-!		end if
-!	end subroutine checkReemission
 
 	subroutine checkScatter(sctr)
 		real(8) :: rAbs,thrVal
@@ -1069,7 +1006,6 @@ module rt
 			nhbrSf = meshElems(cEl)%neighbours(newFc,3)
 			actByChk = (count(nhbrSf==rtActBys) .gt. 0)
 			if(actByChk) then
-!			if(nhbrFc .lt. 0) then
 				bbSfChk = (count(nhbrSf==rtBBSfIds) .gt. 0)
 				trSfChk = (count(nhbrSf==rtTrSfIds) .gt. 0)
 				npSfChk = (count(nhbrSf==rtNPSfIds) .gt. 0)
@@ -1078,14 +1014,12 @@ module rt
 					endEl = cEl
 					endPt = pt
 					endDir = dir
-!					vExit = .true.
 					byAbs = .true.
 					optPath = MEGA
 					rtBBAbsNum = rtBBAbsNum + 1
 					exit
 				end if
 				if(trSfChk) then
-!					call transExit(ec,newFc,cDom,dir,trans,newDir)
 					call transExit(ec,newFc,dir,trans,newDir)
 					if(trans) then
 						endEl = cEl
@@ -1143,10 +1077,7 @@ module rt
 !			Check for neighbouring faces
 				nhbrEl = meshElems(cEl)%neighbours(newFc,1)
 				nhbrDom = meshElems(nhbrEl)%domain
-!				if(nhbrDom .ne. cDom) then
 				if(nhbrDom .ne. rtCurrDom) then
-!					call transBetweenDoms(ec,newFc,cDom,nhbrDom,dir,	&
-!					trans,newDir)
 					call transBetweenDoms(ec,newFc,nhbrDom,dir,trans,	&
 					newDir)
 					dir = newDir

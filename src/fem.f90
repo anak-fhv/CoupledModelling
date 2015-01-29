@@ -72,6 +72,7 @@ module fem
 		call readMesh()
 		call getElementNeighbours()
 		call populateSurfaceFaceAreas()
+		call populateElementVolumes()
 	end subroutine femInitMesh
 
 	subroutine assembleFemSystem()
