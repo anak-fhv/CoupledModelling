@@ -19,7 +19,8 @@ module fem
 	femCpRowPtr(:),femCpColPtr(:)
 	real(8) :: femAmbT
 	real(8),allocatable :: femKs(:),femBVals(:),femRhos(:),femCaps(:),	&
-	femSrc(:),femTvals(:),femStVals(:),femCpVals(:)
+	femSrc(:),femTvals(:),femStVals(:),femCpVals(:),femDomGens(:),		&
+	femDomGenPerVol(:)
 	logical :: femBCsKnown,femSysAssembled,femTransient,femUnifGen
 	character(72) :: femByFile="boundaries",femResFile="res",			&
 	femSolverType="BiCGStab",femTrScheme="rk"
@@ -27,48 +28,50 @@ module fem
 
 	contains
 
-!	subroutine runFem(mFileName)
 	subroutine runFem()
-!		integer :: pbDatFileNum
-!		character(*),intent(in) :: mFileName
 
-!		if(femSysAssembled) then
-!			if(norm2(meshSources-femSrc) .lt. NANO) then
-!				write(*,*)"System already solved, no changes detected."
-!				stop
-!			end if
-!			femSrc = meshSources
-!			call setupFinalEquations()
-!			call solveFemSystem()
-!			call writeVtkResults()
-!		else
+		if(femSysAssembled) then
+			if(norm2(meshSources-femSrc) .lt. NANO) then
+				write(*,*)"System already solved, no changes detected."
+				stop
+			end if
+			femSrc = meshSources
+			call setupFinalEquations()
+			call solveFemSystem()
+			call writeVtkResults()
+		else
 			if(.not.(allocated(meshElems))) then
 				call femInitMesh()
 			end if
 			if(.not.(femBCsKnown)) then
 				call getBoundaryConditions()
 			end if
+			if(any(femDomGens.gt.PICO)) then
+				if(.not.(allocated(femDomGenPerVol))) then
+					allocate(femDomGenPerVol(meshNumDoms))
+				end if
+				call getDomGenPerVol()
+			end if
 			call assembleFemSystem()
-!			femSysAssembled = .true.
+			femSysAssembled = .true.
 			call solveFemSystem()
 			call setMeshNodalValues(femTvals,"T")
 			call writeVtkResults()
 			call writeNodalResults()
-!			deallocate(femSt)
-			deallocate(femSrc)
-			deallocate(femTvals)
-			deallocate(femStVals)
-			deallocate(femStRowPtr)
-			deallocate(femStColPtr)
-!			call writeElementNeighbourhoodData()
-!		end if
+			if(allocated(femSt)) deallocate(femSt)
+			if(allocated(femSrc)) deallocate(femSrc)
+			if(allocated(femTvals)) deallocate(femTvals)
+			if(allocated(femStVals)) deallocate(femStVals)
+			if(allocated(femStRowPtr)) deallocate(femStRowPtr)
+			if(allocated(femStColPtr)) deallocate(femStColPtr)
+		end if
 	end subroutine runFem
 
 	subroutine femInitMesh()
-!		character(*),intent(in) :: mFileName
 
-!		meshFile = trim(adjustl(mFileName))
 		call readMesh()
+		call getElementNeighbours()
+		call populateSurfaceFaceAreas()
 	end subroutine femInitMesh
 
 	subroutine assembleFemSystem()
@@ -85,21 +88,17 @@ module fem
 		if(femTransient) then
 			allocate(femCp(meshNumNodes))
 		end if
+
 		do i=1,meshNumElems
 			elNodes = meshElems(i)%nodes
 			elDom = meshElems(i)%domain
 			elK = femKs(elDom)
 			call getElementUnitStiffness(i,elK,elVol,elSt)
-!			elBys = meshElems(i)%neighbours(:,2)
-!			if(any(elBys<0)) then
-				call boundaryConditions(i,elBys,elBySt,elByTs,elBySrc)
-				elSt = elSt + elBySt
-				call addToGlobalTemperature(elNodes,elByTs)
-				call addToGlobalSource(elNodes,elBySrc)
-!				femSrc(elNodes) = elBySrc
-!				femTvals(elNodes) = elByTs
-!			end if
-			
+			elBys = meshElems(i)%neighbours(:,2)
+			call boundaryConditions(i,elBys,elBySt,elByTs,elBySrc)
+			elSt = elSt + elBySt
+			call addToGlobalTemperature(elNodes,elByTs)
+			call addToGlobalSource(elNodes,elBySrc)
 			stElem = femSt(elNodes)
 			call assembleNoderows(elNodes,elSt,stElem)
 			femSt(elNodes) = stElem
@@ -111,8 +110,8 @@ module fem
 				call assembleNoderows(elNodes,elCp,cpElem)
 				femCp(elNodes) = cpElem
 			end if
-			if(femUnifGen) then
-				call getUniformSource(100.0d0,elVol,elGenSrc)
+			if(femDomGens(elDom).gt.PICO) then
+				call getElemUniGenSrc(i,elDom,elVol,elGenSrc)
 				call addToGlobalSource(elNodes,elGenSrc)
 			end if
 		end do
@@ -131,18 +130,8 @@ module fem
 		end if
 		call setupFinalEquations()
 		call collapseNodeRows("st")
-!		open(111,file="../obj/tempSrc.out")
-!		write(111,'(a)')"femStRowPtr:"
-!		write(111,'(i8)')femStRowPtr
-!		write(111,*)
-!		write(111,'(a)')"femStColPtr:"
-!		write(111,'(i8)')femStColPtr
-!		write(111,*)
-!		write(111,'(a)')"femStVals:"
-!		write(111,'(f9.5)')femStVals
-!		write(111,'(a)')"femTemperatures:"
-!		write(111,'(f9.5)')femTvals
-!		close(111)
+		call writeFemSolverValues()
+
 		deallocate(femSt)
 	end subroutine assembleFemSystem
 
@@ -163,6 +152,25 @@ module fem
 			end if
 		end do
 	end subroutine setupFinalEquations
+
+	subroutine writeFemSolverValues()
+		integer,parameter :: numFSolVals=135
+		character :: fFemSolVals*72
+
+		fFemSolVals = trim(adjustl(femResFile))//"_solVals"//commOutExt
+		open(numFSolVals,file=commResDir//trim(adjustl(fFemSolVals)))
+		write(numFSolVals,'(a)')"femStRowPtr:"
+		write(numFSolVals,'(i8)')femStRowPtr
+		write(numFSolVals,*)
+		write(numFSolVals,'(a)')"femStColPtr:"
+		write(numFSolVals,'(i8)')femStColPtr
+		write(numFSolVals,*)
+		write(numFSolVals,'(a)')"femStVals:"
+		write(numFSolVals,'(f20.12)')femStVals
+		write(numFSolVals,'(a)')"femSrc:"
+		write(numFSolVals,'(f20.12)')femSrc
+		close(numFSolVals)		
+	end subroutine writeFemSolverValues
 
 !-----------------------------------------------------------------------!
 !	Routines for boundary handling
@@ -207,7 +215,7 @@ module fem
 		integer :: i,j,bSfId,bSfType,fcNodes(3),boSfs(4),elNodes(4) 
 		integer,intent(in) :: elNum,elBys(4)
 		real(8) :: bSfVal,ec(4,3),elQ(4),htA(4)
-		real(8) :: elByTs(4),elBySrc(4),elBySt(4,4)
+		real(8) :: elByTs(4),elBySrc(4),elBySt(4,4),elht(4,4)
 
 		boSfs = meshElems(elNum)%neighbours(:,2)
 		elNodes = meshElems(elNum)%nodes
@@ -218,8 +226,8 @@ module fem
 		elQ = 0.d0
 		htA = 0.d0
 		do i=1,4
-			if(boSfs(i) < 0) then
-				bSfId = -boSfs(i)
+			if(boSfs(i) .lt. 0) then
+				bSfId = meshElems(elNum)%neighbours(i,3)
 				bSfType = femBCs(bSfId)
 				bSfVal = femBVals(bSfId)
 				fcNodes = getFaceNodes(i)
@@ -231,8 +239,9 @@ module fem
 						elBySrc = elBySrc - elQ
 					elseif(bSfType == 3) then
 						call getConvectiveSource(ec,fcNodes,bSfVal,htA,	&
-						elBySt)
+						elht)
 						elBySrc = elBySrc + htA
+						elBySt = elBySt + elht
 					elseif(bSfType == 4) then
 						continue
 					else
@@ -265,6 +274,7 @@ module fem
 		real(8),intent(out) :: htA(4),elBySt(4,4)
 
 		elBySt = 0.0d0
+		htA = 0.0d0
 		fc = ec(fcNodes,:)
 		fcArea = triangleArea(fc)
 		htA(fcnodes) = (1.0d0/6.0d0)*(2.0d0*fcArea)*bSfVal*femAmbT
@@ -279,6 +289,23 @@ module fem
 		elGenSrc = 1.0d0
 		elGenSrc = uniGenVal*(elvol/4.0d0)*elGenSrc
 	end subroutine getUniformSource
+
+	subroutine getDomGenPerVol()
+		integer :: i
+
+		do i=1,meshNumDoms
+			femDomGenPerVol(i) = femDomGens(i)/meshDomVols(i)
+		end do
+	end subroutine getDomGenPerVol
+
+	subroutine getElemUniGenSrc(elNum,elDom,elVol,elGenSrc)
+		integer,intent(in) :: elNum,elDom
+		real(8),intent(in) :: elVol
+		real(8),intent(out) :: elGenSrc(4)
+
+		elGenSrc = 1.d0
+		elGenSrc = femDomGenPerVol(elDom)*(elVol/4.d0)*elGenSrc
+	end subroutine getElemUniGenSrc
 
 	subroutine addToGlobalTemperature(elNodes,elByTs)
 		integer,intent(in) :: elNodes(4)
@@ -632,7 +659,8 @@ module fem
 		allocate(b(meshNumNodes))
 		b = femSrc
 		allocate(initGuess(meshNumNodes))
-		initGuess = 0.0d0
+!		initGuess = 0.0d0
+		initGuess = femAmbT
 		if(femSolverType == "BiCGStab") then
 			call solveBiCGStab(acsr,ia,ja,b,initGuess,x,iter)
 		elseif(femSolverType == "MinRes") then
@@ -696,7 +724,7 @@ module fem
 		integer :: i,j,k
 		integer,intent(in) :: ia(:),ja(:)
 		integer,intent(out) :: iter
-		real(8),parameter :: cc=2e-9
+		real(8),parameter :: cc=1e-9
 		real(8) :: alpha,beta,delta0,delta,delta_old,omega
 		real(8),intent(in) :: acsr(:),b(:),initGuess(:)
 		real(8),allocatable :: r(:),p(:),s(:),rst(:),temp1(:),temp2(:)
@@ -711,10 +739,12 @@ module fem
 		allocate(temp2(meshNumNodes))
 
 		x = initGuess
+!		x = 298.15d0
 
 		call mkl_dcsrgemv("N",meshNumNodes,acsr,ia,ja,x,temp1)
 		r = b-temp1
 		call random_number(rst)
+!		rst = 1.d0
 		p = r
 		delta = dot_product(rst,r)
 		write(*,'(a,1x,f15.3)') "Starting delta: ", delta
@@ -895,6 +925,12 @@ module fem
 		do i=1,meshNumNodes
 			write(resFid,*) femTvals(i)
 		end do
+		write(resFid,'(a)')""
+		write(resFid,'(a)')"SCALARS T(C) double"
+		write(resFid,'(a)')"LOOKUP_TABLE default"
+		do i=1,meshNumNodes
+			write(resFid,*) femTvals(i)-273.15
+		end do		
 		close(resFid)
 	end subroutine writeVtkResults
 

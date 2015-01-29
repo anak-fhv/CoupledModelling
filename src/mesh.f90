@@ -36,7 +36,7 @@ module mesh
 	integer,allocatable :: meshBys(:),meshIntfcs(:),meshStColPtr(:),	&
 	meshStRowPtr(:)
 	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
-	meshVerts(:,:),meshStVals(:)
+	meshVerts(:,:),meshStVals(:),meshDomVols(:)
 	type(tetraElement),allocatable :: meshElems(:)
 	type(surface),allocatable :: meshSurfs(:)
 	type(elementBin),allocatable :: meshElBins(:,:,:)
@@ -521,10 +521,16 @@ module mesh
 	end subroutine checkForSharedFace
 
 	subroutine populateElementVolumes()
-		integer :: i
+		integer :: i,elDom
 
+		if(.not.(allocated(meshDomVols))) then
+			allocate(meshDomVols(meshNumDoms))
+		end if
+		meshDomVols = 0.d0
 		do i=1,meshNumElems
 			meshElems(i)%volume = getElementVolume(i)
+			elDom = meshElems(i)%domain
+			meshDomVols(elDom) = meshDomVols(elDom)+meshElems(i)%volume
 		end do
 	end subroutine populateElementVolumes
 
