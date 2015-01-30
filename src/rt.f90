@@ -257,7 +257,6 @@ module rt
 		pInt = getRayPathIntegral()
 	end subroutine startRayInVolume
 
-!	subroutine startRayFromSurf(pRatio,emEl,emFc,pInt,pt,dir)
 	subroutine startRayFromSurf(emEl,emFc,pInt,pt,dir)
 		integer :: remNo,fcNodes(3),elNodes(4)
 		integer,intent(out) :: emEl,emFc
@@ -265,7 +264,8 @@ module rt
 !		real(8),intent(in) :: pRatio(:)
 		real(8),intent(out) :: pInt,pt(3),dir(3)
 
-!		call chooseEmittingFace(pRatio,emEl,emFc)
+
+		call chooseEmittingFace(emEl,emFc)
 ! 	Added to the code to make a near point source simulation
 ! 		For 1040 mu hemisphere
 !		emEl = 67
@@ -274,9 +274,12 @@ module rt
 ! 		For 1040 mu cylinder
 !		emEl = 272
 !		emFc = 2
+
+!		For hem.msh
+!		emEl = 50865
+!		emFc = 1
 ! 	Added to the code to make a near point source simulation
 
-		call chooseEmittingFace(emEl,emFc)
 		elNodes = meshElems(emEl)%nodes
 		ec = meshVerts(elNodes,:)
 		fcNodes = getFaceNodes(emFc)
@@ -288,28 +291,6 @@ module rt
 		dir = getFaceDiffRayDir(fcVerts,fcNorm)
 		pInt = getRayPathIntegral()
 	end subroutine startRayFromSurf
-
-!	subroutine chooseEmittingFace(pRatio,emEl,emFc)
-!		integer :: i,nSf
-!		integer,intent(out) :: emEl,emFc
-!		real(8) :: rs
-!		real(8),intent(in) :: pRatio(:)
-!		type(emissionSurface) :: emSf
-
-!		nSf = size(pRatio,1) + 1
-!		call random_number(rs)
-!		do i=1,nSf-1
-!			if(rs .lt. pRatio(i)) then
-!				emSf = rtEmSurfs(i)
-!				call getEmFace(emSf,emEl,emFc)
-!				exit
-!			elseif((rs.gt.pRatio(i)).and.(rs.lt.pRatio(i+1))) then
-!				emSf = rtEmSurfs(i+1)
-!				call getEmFace(emSf,emEl,emFc)
-!				exit
-!			end if
-!		end do
-!	end subroutine chooseEmittingFace
 
 	subroutine chooseEmittingFace(emEl,emFc)
 		integer :: i,nSf
@@ -782,6 +763,7 @@ module rt
 			lambda = lcBlue
 			reEmCt = 0
 			rtCurrLambda = 1		! Hard coded, needs to change
+			rtCurrDom = meshElems(emEl)%domain
 
 !			Tracing line
 			stEl = emEl
