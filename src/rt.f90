@@ -362,27 +362,42 @@ module rt
 		dir = getDirectionCoords(th,ph)
 	end function scatterRayIsotropic
 
-	function scatterRayLargeSphereCloud() result(dir)
-		real(8) :: rMu,rPhi,mu,th,rph,ph,dir(3)
+	function scatterRayLargeSphereCloud(dirIn) result(dirOut)
+		real(8),intent(in) :: dirIn(3)
+		real(8) :: rMu,rPhi,mu,th,rph,ph,dirOut(3)
 
 		call random_number(rMu)
 		call getLargeDiffSphMu(rMu,mu)
 		th = acos(mu)
 		call random_number(rph)
 		ph = 2.d0*pi*rph
-		dir = getDirectionCoords(th,ph)
+		call scatterRay(dirIn,th,ph,dirOut)
 	end function scatterRayLargeSphereCloud
 
-	function scatterRayHeyneyGreenStein() result(dir)
-		real(8) :: rMu,rPhi,mu,th,rph,ph,dir(3)
+	function scatterRayHeyneyGreenStein(dirIn) result(dirOut)
+		real(8),intent(in) :: dirIn(3)
+		real(8) :: rMu,rPhi,mu,th,rph,ph,dirOut(3)
 
 		call random_number(rMu)
 		call getHeyneyGreensteinMu(rMu,mu)
 		th = acos(mu)
 		call random_number(rph)
 		ph = 2.d0*pi*rph
-		dir = getDirectionCoords(th,ph)				
+		call scatterRay(dirIn,th,ph,dirOut)
 	end function scatterRayHeyneyGreenStein
+
+	subroutine scatterRay(dirIn,th,ph,dirOut)
+		real(8),intent(in) :: dirIn(3),th,ph
+		real(8),intent(out) :: dirOut(3)
+		real(8) :: nx(3),ny(3)
+
+		call createLocalCS(dirIn,nx,ny)
+		dirOut = sin(th)*cos(ph)*nx + sin(th)*sin(ph)*ny + cos(th)*dirIn
+		dirOut = dirOut/norm2(dirOut)
+		if(abs(dot_product(dirIn,dirOut) - cos(th)) .gt. NANO) then
+			write(*,*) "Trouble in the scattering."
+		end if
+	end subroutine scatterRay
 
 	function specularReflection(ec,fcNum,dirIn) result(dirOut)
 		integer :: remNo,fcNodes(3)
@@ -415,6 +430,7 @@ module rt
 		fcVerts = ec(fcNodes,:)
 		remVert = ec(remNo,:)
 		fcNorm = getFaceNorm(fcVerts,remVert,.true.)
+
 		dirOut = getFaceDiffRayDir(fcVerts,fcNorm)
 	end function diffuseReflection
 
@@ -676,23 +692,27 @@ module rt
 
 	function getFaceDiffRayDir(fcVerts,fcNorm) result(dir)
 		real(8),intent(in) :: fcVerts(3),fcNorm(3)
-		real(8):: th,ph,dir(3)
+		real(8):: th,ph,dir(3),nx(3),ny(3)
 
 		call random_number(th)
 		th = asin(sqrt(th))
 		call random_number(ph)
     	ph = 2.0d0*pi*ph
-		dir = getDirectionCoords(th,ph)
+		call createLocalCS(fcNorm,nx,ny)
+		dir = sin(th)*cos(ph)*nx + sin(th)*sin(ph)*ny + cos(th)*fcNorm
+		dir = dir/norm2(dir)
 
+!		In case of badly shaped/located faces/edges
 		if(dot_product(fcNorm,dir) .lt. 0.d0) then
 			do while(dot_product(fcNorm,dir).lt. 0.d0)
 				call random_number(th)
 				th = asin(sqrt(th))
 				call random_number(ph)
 				ph = 2.0d0*pi*ph
-				dir = getDirectionCoords(th,ph)				
+				call createLocalCS(fcNorm,nx,ny)
+				dir = sin(th)*cos(ph)*nx + sin(th)*sin(ph)*ny + cos(th)*fcNorm
+				dir = dir/norm2(dir)			
 			end do
-
 		end if
 
 	end function getFaceDiffRayDir
@@ -812,9 +832,9 @@ module rt
 				pt = endPt
 				stEl = endEl
 				if(rtSctThr .eq. rtSctLrgSphThr) then
-					dir = scatterRayLargeSphereCloud()
+					dir = scatterRayLargeSphereCloud(endDir)
 				elseif(rtSctThr .eq. rtSctMieThr) then
-					dir = scatterRayHeyneyGreenStein()
+					dir = scatterRayHeyneyGreenStein(endDir)
 				else
 					dir = scatterRayIsotropic()
 				end if

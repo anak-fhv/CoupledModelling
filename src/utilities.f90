@@ -296,6 +296,24 @@ module utilities
 		end do
 	end function areaIntShapeFuncs
 
+	subroutine createLocalCS(s,nx,ny)
+		real(8),parameter :: xAx(3) = (/1.d0,0.d0,0.d0/), 					&
+		yAx(3) = (/0.d0,1.d0,0.d0/), zAx(3) = (/0.d0,0.d0,1.d0/)
+		real(8),intent(in) :: s(3)
+		real(8),intent(out) :: nx(3),ny(3)
+		real(8) :: v(3)
+
+		v = s/norm2(s)	! Just in case it is not normalised
+		ny = cross_product_3(v,zAx)
+		if(norm2(ny) .lt. 1.d-9) then
+			nx = xAx
+			ny = cross_product_3(v,nx)
+		else
+			ny = ny/norm2(ny)
+			nx = cross_product_3(ny,v)
+		end if
+	end subroutine createLocalCS
+
 	function cross_product_3(v,w) result(cP)
 		real(8) :: cP(3)
 		real(8),intent(in) :: v(3),w(3)
