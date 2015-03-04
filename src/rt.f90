@@ -27,7 +27,7 @@ module rt
 	rtActBys(:)
 	real(8) :: rtRefRayPow,rtSysRadPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
-	rtCTEmSfVals(:),rtCQEmSfVals(:),rtParDiffSfVals(:),					&
+	rtCTEmSfVals(:),rtCQEmSfVals(:),rtParDiffSfVals(:),rtCTEmSfTemps(:),&
 	rtParSpecSfVals(:),rtEmSpectr(:,:),rtReEmSpectr(:,:),rtBeta(:,:),	&
 	rtKappa(:,:),rtSigma(:,:),rtRefrInd(:,:),rtReEmThr(:,:),			&
 	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:)
@@ -55,6 +55,7 @@ module rt
 		rtActBys = (/rtBBSfIds,rtTrSfIds,rtNpSfIds,rtParSfIds/)
 		call popLargeSphDiffMuTable()
 		if(rtNumCTEmSfs .gt. 0) then
+			call getRtCTEmSfVals()
 			do i=1,rtNumCTEmSfs
 				call setSurfaceConstTemperature(rtCTEmSfIds(i),			&
 				rtCTEmSfVals(i))
@@ -89,7 +90,7 @@ module rt
 		rtTransBetnDomsCt = 0
 		write(*,*) "rtLimOutPts: ",rtLimOutPts
 		write(*,*) "rtLimReEmDrops: ",rtLimReEmDrops
-
+		call getRtSfPowRatio()
 		call CreateUniformEmissionSurfaces()
 	end subroutine rtInit
 
@@ -99,6 +100,43 @@ module rt
 		call populateSurfaceFaceAreas()
 		call populateElementVolumes()
 	end subroutine rtInitMesh
+
+	subroutine getRtCTEmSfVals()
+		integer :: i,currSf
+		real(8) :: currSfFcA
+		do i=1,rtNumCTEmSfs
+			currSf = rtCTEmSfIds(i)
+			currSfFcA = meshSurfs(currSf)%totalArea
+			rtCTEmSfVals(i) = currSfFcA*sigB*(rtCTEmSfVals(i)**4.d0)
+		end do
+	end subroutine getRtCTEmSfVals
+
+	subroutine getRtSfPowRatio()
+		integer :: i,currSf
+		real(8) :: currSfFcA,cumPow
+		real(8),allocatable :: cumCT(:)
+
+		allocate(rtSfPowRatio(rtNumEmSfs))
+		if(rtNumEmSfs .eq. 1) then
+			rtSfPowRatio = (/1.d0/)
+			return
+		end if
+!	Note: cumPow is set to zero here, then the cumulative is calculated
+!	serially, first from the CT and then the CQ surfaces. This is due to
+!	the nature of the assignment on line 53.
+		cumPow = 0.d0
+		if(rtNumCTEmSfs.gt.0) then
+			do i=1,rtNumCTEmSfs
+				cumPow = cumPow + rtCTEmSfVals(i)
+			end do
+		end if
+		if(rtNumCQEmSfs.gt.0) then
+			do i=1,rtNumCQEmSfs
+				cumPow = cumPow + rtCQEmSfVals(i)
+			end do
+		end if
+		rtSfPowRatio = (/rtCTEmSfVals,rtCQEmSfVals/)/cumPow
+	end subroutine getRtSfPowRatio
 
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
 	nScrPts,nBotPts)

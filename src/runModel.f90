@@ -20,21 +20,21 @@ program runModel
 	call get_command_argument(1,simType)
 
 	if(simType .eq. "RT") then
-		write(*,'(a)') "Only Ray Tracing run chosen."
+		write(*,'(/a)') "Only Ray Tracing run chosen."
 		call get_command_argument(2,fMesh)
 		write (*,'(a,2x,a)') "Mesh data file: ", trim(fMesh)
 		call get_command_argument(3,fRt)
 		write (*,'(a,2x,a)') "MCRT data file: ", trim(fRt)
 		call rtSimple(fMesh,fRt)
 	elseif(simType .eq. "FE") then
-		write(*,'(a)') "Only FEM solution sought."
+		write(*,'(/a)') "Only FEM solution sought."
 		call get_command_argument(2,fMesh)
 		write (*,'(a,2x,a)') "Mesh data file: ", trim(fMesh)
 		call get_command_argument(3,fFem)
 		write (*,'(a,2x,a)') "FEM data file: ", trim(fFem)
 		call femSimple(fMesh,fFem)
 	elseif(simType .eq. "CM") then
-		write(*,'(a)') "Coupled RT-FEM simulation selected."
+		write(*,'(/a)') "Coupled RT-FEM simulation selected."
 		if(ct .lt. 4) then
 			write(*,'(a)')"Some data still missing, please retry."
 			write(*,'(a)')"Exiting now..."

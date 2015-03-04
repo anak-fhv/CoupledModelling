@@ -35,6 +35,35 @@ module problem
 		call runFem()
 	end subroutine runCoupledModel
 
+	subroutine femSimple(fMesh,fFem)
+		character(32),intent(in) :: fMesh,fFem
+		character(32) :: fMeshDat,fFemDat
+
+		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
+		fFemDat = commDatDir//trim(adjustl(fFem))//commDatExt
+		
+		call readMeshDataFile(fMeshDat)
+		call readFemDataFile(fFemDat)
+		femBCsKnown = .true.
+		call runFem()
+	end subroutine femSimple
+
+	subroutine rtSimple(fMesh,fRt)
+		character(32),intent(in) :: fMesh,fRt
+		character(32) :: fMeshDat,fRtDat
+
+		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
+		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
+		call readMeshDataFile(fMeshDat)
+		call readRtDataFile(fRtDat)
+		call rtInit()
+!		allocate(rtSfPowRatio(rtNumEmSfs))
+!		rtSfPowRatio = (/1.d0/)
+		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
+		call traceFromSurfLED()
+		call binScreenPolar(20)
+	end subroutine rtSimple
+
 	subroutine readMeshDataFile(fMeshDat)
 		integer,parameter :: nMeshDat=101
 		character(32),intent(in) :: fMeshDat
@@ -170,10 +199,11 @@ module problem
 		if(rtNumCTEmSfs .gt. 0) then
 			allocate(rtCTEmSfIds(rtNumCTEmSfs))
 			allocate(rtCTEmSfVals(rtNumCTEmSfs))
+			allocate(rtCTEmSfTemps(rtNumCTEmSfs))
 			read(nRtDat,*)
 			read(nRtDat,*) rtCTEmSfIds
 			read(nRtDat,*)
-			read(nRtDat,*) rtCTEmSfVals
+			read(nRtDat,*) rtCTEmSfTemps
 		else
 			call skipReadLines(nRtDat,4)
 		end if
@@ -313,35 +343,6 @@ module problem
         read(nFemDat,*) femBVals
 		close(nFemDat)
 	end subroutine readFemDataFile
-
-	subroutine femSimple(fMesh,fFem)
-		character(32),intent(in) :: fMesh,fFem
-		character(32) :: fMeshDat,fFemDat
-
-		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
-		fFemDat = commDatDir//trim(adjustl(fFem))//commDatExt
-		
-		call readMeshDataFile(fMeshDat)
-		call readFemDataFile(fFemDat)
-		femBCsKnown = .true.
-		call runFem()
-	end subroutine femSimple
-
-	subroutine rtSimple(fMesh,fRt)
-		character(32),intent(in) :: fMesh,fRt
-		character(32) :: fMeshDat,fRtDat
-
-		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
-		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
-		call readMeshDataFile(fMeshDat)
-		call readRtDataFile(fRtDat)
-		call rtInit()
-		allocate(rtSfPowRatio(rtNumEmSfs))
-		rtSfPowRatio = (/1.d0/)
-		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
-		call traceFromSurfLED()
-		call binScreenPolar(20)
-	end subroutine rtSimple
 
 	subroutine getAveragedSource(oldSrc,avSrc)
 		real(8),parameter :: expAvFact = 0.05d0
