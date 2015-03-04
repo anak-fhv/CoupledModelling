@@ -30,11 +30,10 @@ module fem
 
 	subroutine runFem()
 
-		write(*,'(a)') " "
-		write(*,'(a)') "Entering FEM solver"
+		write(*,'(/a)') "Entering FEM solver"
 		if(femSysAssembled) then
 			if(norm2(meshSources-femSrc) .lt. NANO) then
-				write(*,*)"System already solved, no changes detected."
+				write(*,'(/a)')"System already solved, no changes detected."
 				stop
 			end if
 			femSrc = meshSources
@@ -44,19 +43,27 @@ module fem
 		else
 			if(.not.(allocated(meshElems))) then
 				call femInitMesh()
+			else
+				write(*,'(/a)')"Mesh data already available in memory."
 			end if
 			if(.not.(femBCsKnown)) then
 				call getBoundaryConditions()
+			else
+				write(*,'(/a)')"Boundary conditions already known."
 			end if
 			if(any(femDomGens.gt.PICO)) then
+				write(*,'(/a)')"There appears to be domain generation specified."
 				if(.not.(allocated(femDomGenPerVol))) then
 					allocate(femDomGenPerVol(meshNumDoms))
 				end if
 				call getDomGenPerVol()
 			end if
+			write(*,'(/a)')"Starting FEM assembly. This might take some time."
 			call assembleFemSystem()
 			femSysAssembled = .true.
+			write(*,'(/a)') "FEM Assembly completed. Now solving system."
 			call solveFemSystem()
+			write(*,'(/a)') "FEM system solution completed."
 			call setMeshNodalValues(femTvals,"T")
 			call writeVtkResults()
 			call writeNodalResults()
@@ -67,6 +74,7 @@ module fem
 			if(allocated(femStRowPtr)) deallocate(femStRowPtr)
 			if(allocated(femStColPtr)) deallocate(femStColPtr)
 		end if
+		write(*,'(/a)')"Exiting FEM module."
 	end subroutine runFem
 
 	subroutine femInitMesh()
@@ -248,7 +256,7 @@ module fem
 					elseif(bSfType == 4) then
 						continue
 					else
-						write(*,*)"Unrecognised boundary type."
+						write(*,'(/a)')"Unrecognised boundary type."
 					end if
 				else
 					continue
@@ -378,7 +386,7 @@ module fem
 		elseif(whichMat == "cp") then
 			sysNodeRows = femCp
 		else
-			write(*,*)"Unrecognised call to collapseNodeRows."
+			write(*,'(/a)')"Unrecognised call to collapseNodeRows."
 			stop
 		end if
 		allocate(rowPtr(meshNumNodes+1))
@@ -515,8 +523,8 @@ module fem
 		elseif(femTrScheme == "fd") then
 			call transientFD()
 		else
-			write(*,*)"Transient solver type unrecognised."
-			write(*,*)"Using default Finite Difference solver."
+			write(*,'(/a)')"Transient solver type unrecognised."
+			write(*,'(/a)')"Using default Finite Difference solver."
 			call transientFD()
 		end if
 	end subroutine solveTransientSystem
@@ -671,8 +679,8 @@ module fem
 		elseif(femSolverType == "ParDiSo") then
 			call solveParDiSo(acsr,ia,ja,b,x)
 		else
-			write(*,*)"Solver type not recognised."
-			write(*,*)"Using default BiCGStab solver."
+			write(*,'(/a)')"Solver type not recognised."
+			write(*,'(/a)')"Using default BiCGStab solver."
 			call solveBiCGStab(acsr,ia,ja,b,initGuess,x,iter)
 		end if
 		femTvals = x
@@ -714,9 +722,9 @@ module fem
 				print *, "Norm of residual: ", norm2(r)
 				print *, "Convergence criterion: ", cc
 				if((norm2(r)/cc) .lt. 2.d0) then
-					write(*,*)"The residual is within a small range of &
+					write(*,'(/a)')"The residual is within a small range of &
 					&the convergence criterion."
-					write(*,*)"Increasing the iteration count may help."
+					write(*,'(/a)')"Increasing the iteration count may help."
 				end if
 			end if
 			call mkl_dcsrgemv("N",meshNumNodes,acsr,ia,ja,r,p)
@@ -785,9 +793,9 @@ module fem
 				write(*,'(a,1x,f15.3)') "Norm of residual: ", norm2(r)
 				write(*,'(a,1x,f15.3)') "Convergence criterion: ", cc
 				if((norm2(r)/cc) .lt. 2.d0) then
-					write(*,*)"The residual is within a small range of &
+					write(*,'(/a)')"The residual is within a small range of &
 					&the convergence criterion."
-					write(*,*)"Increasing the iteration count may help."
+					write(*,'(/a)')"Increasing the iteration count may help."
 				end if
 			end if
 		end do
@@ -848,7 +856,7 @@ module fem
 		call pardiso (pt,maxfct,mnum,mtype,phase,meshNumNodes,acsr,ia,	&
 		ja,idum,nrhs,iparm,msglvl,ddum,ddum,error)
 		if (error /= 0) then
-		   write(*,*) 'the following error was detected: ', error
+		   write(*,'(/a)') 'the following error was detected: ', error
 		   goto 1000
 		end if
 
@@ -856,7 +864,7 @@ module fem
 		call pardiso (pt,maxfct,mnum,mtype,phase,meshNumNodes,acsr,ia,	&
 		ja,idum,nrhs,iparm,msglvl,ddum,ddum,error)
 		if (error /= 0) then
-		   write(*,*) 'the following error was detected: ', error
+		   write(*,'(/a)') 'the following error was detected: ', error
 		   goto 1000
 		endif
 		! back substitution and iterative refinement
@@ -865,9 +873,9 @@ module fem
 		phase = 33 ! only solving
 		call pardiso (pt,maxfct,mnum,mtype,phase,meshNumNodes,acsr,ia,	&
 		ja,idum,nrhs,iparm,msglvl,b,x,error)
-		write(*,*) 'solve completed ... '
+		write(*,'(/a)') 'solve completed ... '
 		if (error /= 0) then
-		   write(*,*) 'the following error was detected: ', error
+		   write(*,'(/a)') 'the following error was detected: ', error
 		   goto 1000
 		endif
 1000 	continue
@@ -877,7 +885,7 @@ module fem
 		call pardiso (pt,maxfct,mnum,mtype,phase,meshNumNodes,ddum,		&
 		idum,idum,idum,nrhs,iparm,msglvl,ddum,ddum,error1)
 		if (error1 /= 0) then
-		   write(*,*) 'the following release error was detected: ',	&
+		   write(*,'(/a)') 'the following release error was detected: ',	&
 		   error1
 		   stop 1
 		endif
