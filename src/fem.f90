@@ -30,6 +30,8 @@ module fem
 
 	subroutine runFem()
 
+		write(*,'(a)') " "
+		write(*,'(a)') "Entering FEM solver"
 		if(femSysAssembled) then
 			if(norm2(meshSources-femSrc) .lt. NANO) then
 				write(*,*)"System already solved, no changes detected."

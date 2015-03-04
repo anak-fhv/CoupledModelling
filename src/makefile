@@ -56,5 +56,5 @@ clean:
 	rm -rf $(OBJDIR)
 	rm -rf *.out
 	rm -rf *.o *.mod
-clear:
+clearRes:
 	rm $(RESDIR)/*.out
