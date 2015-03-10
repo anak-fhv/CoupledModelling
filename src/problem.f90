@@ -59,7 +59,7 @@ module problem
 		call rtInit()
 !		allocate(rtSfPowRatio(rtNumEmSfs))
 !		rtSfPowRatio = (/1.d0/)
-		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
+!		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call traceFromSurfLED()
 		call binScreenPolar(20)
 	end subroutine rtSimple
@@ -77,6 +77,8 @@ module problem
 		read(nMeshDat,*) meshNumNodes
 		read(nMeshDat,*)
 		read(nMeshDat,*) meshNumElems
+		read(nMeshDat,*)
+		read(nMeshDat,*) meshScalFac
 		read(nMeshDat,*)
 		read(nMeshDat,*) meshNumDoms
 		read(nMeshDat,*)
@@ -159,7 +161,11 @@ module problem
 		end if
 		if(.not.(allocated(rtAbsThr))) then
 			allocate(rtAbsThr(meshNumDoms,rtNumLambdas))
-		end if		
+		end if
+		if(.not.(allocated(rtDomColCon))) then
+			allocate(rtDomColCon(meshNumDoms,rtNumLambdas))
+		end if
+
 
 		read(nRtDat,*)
 		do i=1,meshNumDoms
@@ -180,6 +186,10 @@ module problem
 		read(nRtDat,*)
 		do i=1,meshNumDoms
 			read(nRtDat,*) rtAnisFac(i,:)
+		end do
+		read(nRtDat,*)
+		do i=1,meshNumDoms
+			read(nRtDat,*) rtDomColCon(i,:)
 		end do
 
 !		Assign values of beta here itself

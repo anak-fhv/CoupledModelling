@@ -20,11 +20,11 @@ module rt
 	rtLimReEmDrops,rtNtraces,rtBBAbsNum,rtTrExitNum,rtNumParDiffSfs,	&
 	rtNumParSpecSfs,rtParSfAbsNum,rtAbsNoReEmCt,rtInVolAbsCt,			&
 	rtTransBetnDomsCt,rtLoggerMode,rtNumActBys,rtCurrDom,rtNumLambdas,	&
-	rtCurrLambda,rtSctThr
+	rtCurrLambda,rtSctThr,rtIfcInc,rtIntRefCt,rtFreRefCt
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:),rtParSfIds(:),rtParDiffSfIds(:),rtParSpecSfIds(:),		&
-	rtActBys(:)
+	rtActBys(:),rtDomColCon(:,:)
 	real(8) :: rtRefRayPow,rtSysRadPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
 	rtCTEmSfVals(:),rtCQEmSfVals(:),rtParDiffSfVals(:),rtCTEmSfTemps(:),&
@@ -38,7 +38,11 @@ module rt
 
 	subroutine rtInit()
 		integer :: i
+
+		write(*,'(/a)')"Entering the ray tracing module."
+		write(*,'(a)')"First, gathering the mesh data."
 		call rtInitMesh()
+		write(*,'(/a)')"Mesh details in memory. Now on to RT inits."
 		if(.not.(allocated(rtEmSfIds))) then
 			allocate(rtEmSfIds(rtNumEmSfs))
 		end if
@@ -87,18 +91,37 @@ module rt
 		rtBBAbsNum = 0
 		rtAbsNoReEmCt = 0
 		rtInVolAbsCt = 0
+		rtIfcInc = 0
+		rtIntRefCt = 0
+		rtFreRefCt = 0
 		rtTransBetnDomsCt = 0
-		write(*,*) "rtLimOutPts: ",rtLimOutPts
-		write(*,*) "rtLimReEmDrops: ",rtLimReEmDrops
 		call getRtSfPowRatio()
+		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call CreateUniformEmissionSurfaces()
+
+		write(*,'(/a)')"RT inits completed. Here are some values:"
+		write(*,'(a,2x,i8)')"rtMCNumRays: ",rtMCNumRays
+		write(*,'(a,2x,i2)')"rtNumEmSfs: ",rtNumEmSfs
+		write(*,'(a,2x,e14.6)')"rtSysRadPow: ",rtSysRadPow
+		write(*,'(a,2x,i4)')"rtLimOutPts: ",rtLimOutPts
+		write(*,'(a,2x,i4)')"rtLimReEmDrops: ",rtLimReEmDrops
+		write(*,'(/a)')"Now starting with the tracing."
 	end subroutine rtInit
 
 	subroutine rtInitMesh()
+		integer :: i
 		call readMesh()
 		call getElementNeighbours()
 		call populateSurfaceFaceAreas()
 		call populateElementVolumes()
+		write(*,'(/a)')"Some mesh details: "
+		write(*,'(a,2x,i2)')"Number of domains: ", meshNumDoms
+		write(*,'(a)')"Domain volumes: "
+		do i=1,meshNumDoms
+			write(*,'(a,2x,i2,a,2x,e14.6)')"Domain ",i,":",meshDomVols(i)
+		end do
+		write(*,'(a,2x,e14.6)')"Area of external surfaces: ",meshExtFcTotA
+		write(*,'(a,2x,e14.6)')"Area of interface surface: ",meshIntFcTotA
 	end subroutine rtInitMesh
 
 	subroutine getRtCTEmSfVals()
@@ -111,31 +134,40 @@ module rt
 		end do
 	end subroutine getRtCTEmSfVals
 
+!	NOTE: This subroutine also determines the value of the cumulative
+!	radiative power emitted in the system, thus replacing the previous
+!	input required for rtSysRadPow
 	subroutine getRtSfPowRatio()
 		integer :: i,currSf
 		real(8) :: currSfFcA,cumPow
-		real(8),allocatable :: cumCT(:)
+		real(8),allocatable :: cumVals(:)
 
 		allocate(rtSfPowRatio(rtNumEmSfs))
-		if(rtNumEmSfs .eq. 1) then
-			rtSfPowRatio = (/1.d0/)
-			return
-		end if
+!		if(rtNumEmSfs .eq. 1) then
+!			rtSfPowRatio = (/1.d0/)
+!			return
+!		end if
 !	Note: cumPow is set to zero here, then the cumulative is calculated
 !	serially, first from the CT and then the CQ surfaces. This is due to
 !	the nature of the assignment on line 53.
 		cumPow = 0.d0
+		allocate(cumVals(rtNumEmSfs))
 		if(rtNumCTEmSfs.gt.0) then
 			do i=1,rtNumCTEmSfs
 				cumPow = cumPow + rtCTEmSfVals(i)
+				cumVals(i) = cumPow
 			end do
 		end if
 		if(rtNumCQEmSfs.gt.0) then
 			do i=1,rtNumCQEmSfs
-				cumPow = cumPow + rtCQEmSfVals(i)
+				currSf = rtCQEmSfIds(i)
+				currSfFcA = meshSurfs(currSf)%totalArea
+				cumPow = cumPow + rtCQEmSfVals(i)*currSfFcA
+				cumVals(rtNumCTEmSfs+i) = cumPow
 			end do
 		end if
-		rtSfPowRatio = (/rtCTEmSfVals,rtCQEmSfVals/)/cumPow
+		rtSfPowRatio = cumVals/cumPow
+		rtSysRadPow = cumPow
 	end subroutine getRtSfPowRatio
 
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
@@ -502,6 +534,7 @@ module rt
 		if(sinTht .gt. 1.d0) then
 			trans = .false.
 			dirOut = specularReflection(ec,fcNum,dirIn)
+			rtIntRefCt = rtIntRefCt + 1
 			return
 		else
 			call getFresnelReflectivity(th1,th2,rhoFresnel)
@@ -509,6 +542,7 @@ module rt
 			if(frRefChk .lt. rhoFresnel) then
 				trans = .false.
 				dirOut = specularReflection(ec,fcNum,dirIn)
+				rtFreRefCt = rtFreRefCt + 1
 				return
 			else
 				trans = .true.
@@ -789,7 +823,7 @@ module rt
 		lambda,elNodes(4),plcHlder
 		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
 		endDir(3),ptScr(3),spFnVals(4)
-		logical :: outPt,vExit,byAbs,scatter,reEmission
+		logical :: outPt,vExit,byAbs,scatter,reEmission,colCon
 		character(*),parameter :: wFmt = '(a,2x,i8)'
 		character :: fSfEmPts*72,fSfAbPts*72,fSctDirs*72,fReEmDrp*72,	&
 					 fExitPts*72,fScrPts*72,fOutPts*72,fBotPts*72
@@ -844,7 +878,7 @@ module rt
 
 			if(byAbs) then
 				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-				write(nSfAbFil,'(3(f15.12,2x))') endPt
+				write(nSfAbFil,'(3(f15.12,2x),a,i2)') endPt,"sf",rtCurrDom
 				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
 				elNodes = meshElems(endEl)%nodes
 				rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
@@ -880,6 +914,7 @@ module rt
 				write(nSctDirs,'(4(e16.9,2x))') dir,tcos
 				goto 100
 			else
+				write(nSfAbFil,'(3(f15.12,2x),i2)') endPt,rtCurrDom
 				call checkReEmission(reEmission)
 				if(reEmission) then
 					reEmCt = reEmCt+1
@@ -893,8 +928,11 @@ module rt
 							stop
 						end if
 					end if
-					lambda = lcYellow
-					rtCurrLambda = 2		! Hard coded, needs to change
+					call checkColourConversion(colCon)
+					if(colCon) then
+						lambda = lcYellow
+						rtCurrLambda = 2		! Hard coded, needs to change
+					end if
 					pInt = getRayPathIntegral()
 					pt = endPt
 					stEl = endEl
@@ -902,7 +940,6 @@ module rt
 					goto 100
 				else
 					rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-					write(nSfAbFil,'(3(f15.12,2x))') endPt
 					call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
 					elNodes = meshElems(endEl)%nodes
 					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
@@ -921,8 +958,11 @@ module rt
 		write(*,wFmt)"Absorptions at black surfaces: ",rtBBAbsNum
 		write(*,wFmt)"Absorptions at non-black surfaces: ",rtParSfAbsNum
 		write(*,wFmt)"Exits at transparent surfaces: ",rtTrExitNum
-		write(*,wFmt)"Number of transmissions across neighbouring domains: ", rtTransBetnDomsCt
-		write(*,wFmt)"Number of actual traces: ", rtNtraces
+		write(*,wFmt)"Rays incident on domain interfaces: ",rtIfcInc
+		write(*,wFmt)"Transmissions across neighbouring domains: ", rtTransBetnDomsCt
+		write(*,wFmt)"Internal reflection count: ",rtIntRefCt
+		write(*,wFmt)"Fresnel reflection count: ",rtFreRefCt
+		write(*,wFmt)"Actual traces: ", rtNtraces
 		close(nSfEmFil)
 		close(nSfAbFil)
 		close(nScrPts)
@@ -958,6 +998,12 @@ module rt
 			reEm = .false.
 		end if
 	end subroutine checkReEmission
+
+	subroutine checkColourConversion(colCon)
+		logical,intent(out) :: colCon
+
+		colCon = (rtDomColCon(rtCurrDom,rtCurrLambda).eq.1)
+	end subroutine checkColourConversion
 
 !------------------------------------------------------------------------
 !	END algorithms for multidomain tracing
@@ -1118,6 +1164,7 @@ module rt
 				nhbrEl = meshElems(cEl)%neighbours(newFc,1)
 				nhbrDom = meshElems(nhbrEl)%domain
 				if(nhbrDom .ne. rtCurrDom) then
+					rtIfcInc = rtIfcInc + 1
 					call transBetweenDoms(ec,newFc,nhbrDom,dir,trans,	&
 					newDir)
 					dir = newDir

@@ -35,6 +35,7 @@ module mesh
 	meshNumBys,meshNumIntfcs
 	integer,allocatable :: meshBys(:),meshIntfcs(:),meshStColPtr(:),	&
 	meshStRowPtr(:)
+	real(8) :: meshScalFac,meshExtFcTotA,meshIntFcTotA
 	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
 	meshVerts(:,:),meshStVals(:),meshDomVols(:)
 	type(tetraElement),allocatable :: meshElems(:)
@@ -68,6 +69,7 @@ module mesh
 		meshNumDoms = mDets(6)
 		meshNumSurfs = mDets(7)
         call readmeshvertices(fNum)
+		meshVerts = meshVerts*meshScalFac
         call readMeshElements(fNum)
         call readMeshElementDomains(fNum)
         call readMeshSurfaces(fNum)
@@ -538,6 +540,8 @@ module mesh
 		integer :: i,j,nSfFaces,elNum,fcNum
 		real(8) :: aTot
 
+		meshExtFcTotA = 0.0d0
+		meshIntFcTotA = 0.0d0
 		do i=1,meshNumSurfs
 			nSfFaces = meshSurfs(i)%numFcs
 			if(.not.(allocated(meshSurfs(i)%fcArea))) then
@@ -551,7 +555,13 @@ module mesh
 				aTot = aTot + meshSurfs(i)%fcArea(j)
 			end do
 			meshSurfs(i)%totalArea = aTot
+			if(meshSurfs(i)%iFace) then
+				meshIntFcTotA = meshIntFcTotA + aTot
+			else
+				meshExtFcTotA = meshExtFcTotA + aTot
+			end if
 		end do
+		meshIntFcTotA = meshIntFcTotA/2.d0
 	end subroutine populateSurfaceFaceAreas
 !-----------------------------------------------------------------------!
 !	End of the auxiliary routines
