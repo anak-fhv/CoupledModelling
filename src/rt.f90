@@ -20,18 +20,21 @@ module rt
 	rtLimReEmDrops,rtNtraces,rtBBAbsNum,rtTrExitNum,rtNumParDiffSfs,	&
 	rtNumParSpecSfs,rtParSfAbsNum,rtAbsNoReEmCt,rtInVolAbsCt,			&
 	rtTransBetnDomsCt,rtLoggerMode,rtNumActBys,rtCurrDom,rtNumLambdas,	&
-	rtCurrLambda,rtSctThr,rtIfcInc,rtIntRefCt,rtFreRefCt
+	rtCurrLambda,rtSctThr,rtIfcInc,rtIntRefCt,rtFreRefCt,rtNumPolBins,	&
+	rtNumScrPts,rtNumBotPts,rtYellExits,rtBlueExits,rtColConvs
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:),rtParSfIds(:),rtParDiffSfIds(:),rtParSpecSfIds(:),		&
-	rtActBys(:),rtDomColCon(:,:)
-	real(8) :: rtRefRayPow,rtSysRadPow
+	rtActBys(:),rtDomColCon(:,:),rtPolarBins(:,:,:)
+	real(8) :: rtRefRayPow,rtSysRadPow,rtLamOrig,rtLamConv,				&
+	rtLamPowRatio,rtTotExitPow,rtBlueExitPow,rtYellExitPow
 	real(8),allocatable :: rtWallSrc(:),rtNodalSrc(:),rtPFTable(:),		&
 	rtCTEmSfVals(:),rtCQEmSfVals(:),rtParDiffSfVals(:),rtCTEmSfTemps(:),&
 	rtParSpecSfVals(:),rtEmSpectr(:,:),rtReEmSpectr(:,:),rtBeta(:,:),	&
 	rtKappa(:,:),rtSigma(:,:),rtRefrInd(:,:),rtReEmThr(:,:),			&
-	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:)
+	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:),rtScrFluxes(:,:)
 	character :: rtfResPre*32,rtEmSpFile*72,rtReEmSpFile*72
+	logical :: rtRepeatMesh
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
@@ -41,7 +44,9 @@ module rt
 
 		write(*,'(/a)')"Entering the ray tracing module."
 		write(*,'(a)')"First, gathering the mesh data."
-		call rtInitMesh()
+		if(.not.rtRepeatMesh) then
+			call rtInitMesh()
+		end if
 		write(*,'(/a)')"Mesh details in memory. Now on to RT inits."
 		if(.not.(allocated(rtEmSfIds))) then
 			allocate(rtEmSfIds(rtNumEmSfs))
@@ -95,16 +100,24 @@ module rt
 		rtIntRefCt = 0
 		rtFreRefCt = 0
 		rtTransBetnDomsCt = 0
+		rtNumScrPts = 0
+		rtNumBotPts = 0
+		rtYellExits = 0
+		rtBlueExits = 0
+		rtColConvs = 0
 		call getRtSfPowRatio()
 		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call CreateUniformEmissionSurfaces()
+		call getWavelengthPowerRatio()
 
 		write(*,'(/a)')"RT inits completed. Here are some values:"
 		write(*,'(a,2x,i8)')"rtMCNumRays: ",rtMCNumRays
 		write(*,'(a,2x,i2)')"rtNumEmSfs: ",rtNumEmSfs
 		write(*,'(a,2x,e14.6)')"rtSysRadPow: ",rtSysRadPow
+		write(*,'(a,2x,e14.6)')"rtRefRayPow: ",rtRefRayPow
 		write(*,'(a,2x,i4)')"rtLimOutPts: ",rtLimOutPts
 		write(*,'(a,2x,i4)')"rtLimReEmDrops: ",rtLimReEmDrops
+		write(*,'(a,2x,e14.6)')"rtLamPowRatio: ",rtLamPowRatio
 		write(*,'(/a)')"Now starting with the tracing."
 	end subroutine rtInit
 
@@ -142,11 +155,13 @@ module rt
 		real(8) :: currSfFcA,cumPow
 		real(8),allocatable :: cumVals(:)
 
-		allocate(rtSfPowRatio(rtNumEmSfs))
-!		if(rtNumEmSfs .eq. 1) then
-!			rtSfPowRatio = (/1.d0/)
-!			return
-!		end if
+		if(.not.(allocated(rtSfPowRatio))) then
+			allocate(rtSfPowRatio(rtNumEmSfs))
+		end if
+		if(rtNumEmSfs .eq. 1) then
+			rtSfPowRatio = (/1.d0/)
+			return
+		end if
 !	Note: cumPow is set to zero here, then the cumulative is calculated
 !	serially, first from the CT and then the CQ surfaces. This is due to
 !	the nature of the assignment on line 53.
@@ -170,6 +185,12 @@ module rt
 		rtSysRadPow = cumPow
 	end subroutine getRtSfPowRatio
 
+	subroutine getWavelengthPowerRatio()
+		rtLamOrig = 446.d-9
+		rtLamConv = 546.d-9
+		rtLamPowRatio = rtLamOrig/rtLamConv
+	end subroutine getWavelengthPowerRatio
+
 	subroutine handleExit(outPt,outPtCt,endPt,dirOut,lambda,nExitPts,	&
 	nScrPts,nBotPts)
 		integer,intent(in) :: lambda,nExitPts,nScrPts,nBotPts
@@ -188,11 +209,18 @@ module rt
 			end if
 		else
 			write(nExitPts,'(6(e16.9,2x),i2)') endPt,dirOut,lambda
+			if(rtCurrLambda.eq.1) then
+				rtBlueExits = rtBlueExits + 1
+			else
+				rtYellExits = rtYellExits + 1
+			end if
 			call getScreenPoint(endPt,dirOut,scrDist,ptScr)
 			if(ptScr(3).gt. bottomSurf) then
 				write(nScrPts,'(3(e16.9,2x),i2)') ptScr,lambda
+				rtNumScrPts = rtNumScrPts + 1
 			else
 				write(nBotPts,'(3(e16.9,2x),i2)') ptScr,lambda
+				rtNumBotPts = rtNumBotPts + 1
 			end if
 		end if
 	end subroutine handleExit
@@ -419,7 +447,7 @@ module rt
 			end do
 			rtEmSurfs(i)%totEmPow = emSfPow
 			rtEmSurfs(i)%cuSumFcEmPow=rtEmSurfs(i)%cuSumFcEmPow/emSfPow
-		end do		
+		end do
 	end subroutine createUniformEmissionSurfaces
 
 	function scatterRayIsotropic() result(dir)
@@ -932,6 +960,7 @@ module rt
 					if(colCon) then
 						lambda = lcYellow
 						rtCurrLambda = 2		! Hard coded, needs to change
+						rtColConvs = rtColConvs + 1
 					end if
 					pInt = getRayPathIntegral()
 					pt = endPt
@@ -952,17 +981,28 @@ module rt
 		if(reEmDropCt .eq. 0) then
 			write(nReEmDrp,'(a)') "No points dropped in reEmission loop."
 		end if
+		rtBlueExitPow = real(rtBlueExits,8)*rtRefRayPow
+		rtYellExitPow = real(rtYellExits,8)*rtLamPowRatio*rtRefRayPow
+		rtTotExitPow = rtBlueExitPow + rtYellExitPow
 		write(*,wFmt)"Out of face points: ", outPtCt
 		write(*,wFmt)"Total number of absorptions: ", rtAbsNoReEmCt
 		write(*,wFmt)"Absorptions inside volume: ", rtInVolAbsCt
 		write(*,wFmt)"Absorptions at black surfaces: ",rtBBAbsNum
 		write(*,wFmt)"Absorptions at non-black surfaces: ",rtParSfAbsNum
 		write(*,wFmt)"Exits at transparent surfaces: ",rtTrExitNum
+		write(*,wFmt)"Points tracked to screen: ",rtNumScrPts
+		write(*,wFmt)"Points below screen limits: ",rtNumBotPts
+		write(*,wFmt)"Number of colour conversions: ",rtColConvs
+		write(*,wFmt)"Number of blue rays leaving: ",rtBlueExits
+		write(*,wFmt)"Number of yellow rays leaving: ",rtYellExits
 		write(*,wFmt)"Rays incident on domain interfaces: ",rtIfcInc
-		write(*,wFmt)"Transmissions across neighbouring domains: ", rtTransBetnDomsCt
+		write(*,wFmt)"Transmissions across domains: ", rtTransBetnDomsCt
 		write(*,wFmt)"Internal reflection count: ",rtIntRefCt
 		write(*,wFmt)"Fresnel reflection count: ",rtFreRefCt
 		write(*,wFmt)"Actual traces: ", rtNtraces
+		write(*,'(a,2x,e14.6)')"Blue power leaving: ",rtBlueExitPow
+		write(*,'(a,2x,e14.6)')"Yellow power leaving: ",rtYellExitPow
+		write(*,'(a,2x,e14.6)')"Total power leaving: ",rtTotExitPow
 		close(nSfEmFil)
 		close(nSfAbFil)
 		close(nScrPts)

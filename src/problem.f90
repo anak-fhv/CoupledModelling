@@ -28,7 +28,7 @@ module problem
 		rtSfPowRatio = (/1.d0/)
 		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call traceFromSurfLED()
-		call binScreenPolar(20)
+		call binScreenPolar()
 		call setMeshNodalValues(rtNodalSrc,"S")
 		rtNodalSrc = 0.d0
 		femBCsKnown = .true.
@@ -57,12 +57,35 @@ module problem
 		call readMeshDataFile(fMeshDat)
 		call readRtDataFile(fRtDat)
 		call rtInit()
-!		allocate(rtSfPowRatio(rtNumEmSfs))
-!		rtSfPowRatio = (/1.d0/)
-!		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call traceFromSurfLED()
-		call binScreenPolar(20)
+		call binScreenPolar()
+		call getScreenBinFluxes()
+		call getScreenAngleFluxes()
 	end subroutine rtSimple
+
+	subroutine simAnneal(fMesh,fRt)
+		character(32),intent(in) :: fMesh,fRt
+		character(32) :: fMeshDat,fRtDat
+
+		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
+		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
+		call readMeshDataFile(fMeshDat)
+		call readRtDataFile(fRtDat)
+		call rtInit()
+		call traceFromSurfLED()
+		call binScreenPolar()
+		call getScreenBinFluxes()
+		call getScreenAngleFluxes()
+		rtRepeatMesh = .true.
+		rtKappa(2,:) = (/4000.d0,0.1d0/)
+		rtSigma(2,:) = (/8000.d0,11000.d0/)
+		rtAnisFac(2,:) = (/0.9d0,0.9d0/)
+		call rtInit()
+		call traceFromSurfLED()
+		call binScreenPolar()
+		call getScreenBinFluxes()
+		call getScreenAngleFluxes()
+	end subroutine simAnneal
 
 	subroutine readMeshDataFile(fMeshDat)
 		integer,parameter :: nMeshDat=101
@@ -124,6 +147,8 @@ module problem
 		read(nRtDat,*) rtLimOutPts
 		read(nRtDat,*)
 		read(nRtDat,*) rtLimReEmDrops
+		read(nRtDat,*)
+		read(nRtDat,*) rtNumPolBins
 		read(nRtDat,*)
 		read(nRtDat,*) rtSctThr
 		read(nRtDat,*)
@@ -363,39 +388,38 @@ module problem
 		avSrc = rtNodalSrc*expAvFact + oldSrc*(1.0d0-expAvFact)
 	end subroutine getAveragedSource
 
-	subroutine binScreenPolar(nBins)
+	subroutine binScreenPolar()
 		integer,parameter :: nScrPts=151,nScrBins=152,lcYellow=6,		&
 		lcBlue=3
-		integer,intent(in) :: nBins
-		integer :: i,j,nLines,error,lambda,binTh,binPh
-		integer,allocatable :: bY(:,:),bB(:,:)
+		integer :: i,j,nLines,error,lambda,bTh,bPh
 		real(8) :: th,ph,stepTh,stepPh,tempD1,tempD2,pt(3),dir(3)
 		real(8),allocatable :: thetas(:),phis(:)
 		character :: fScrPts*72,fScrBins*72
 
 		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
 		fScrBins=commResDir//trim(adjustl(rtfResPre))//"_scrPolBins.res"
-		open(nScrPts,file=fScrPts)
-		call getFileNumLines(nScrPts,nLines)
-		close(nScrPts)
-
-		write(*,*) "nTotalPoints: ", nLines
-		stepTh = pi/(2.d0*real(nbins,8))
-		stepPh = 2.d0*pi/real(nbins,8)
-		allocate(thetas(nBins+1))
-		allocate(phis(nBins+1))
+!		open(nScrPts,file=fScrPts)
+!		call getFileNumLines(nScrPts,nLines)	! Replaced by the addition of points as they are recorded
+!		close(nScrPts)
+!		write(*,*) "nTotalPoints: ", nLines
+!		write(*,'(a,2x,i8)')"Number of screen points: ", rtNumScrPts
+!		write(*,'(a,2x,i8)')"Number of bottom points: ", rtNumBotPts
+		stepTh = pi/(2.d0*real(rtNumPolBins,8))
+		stepPh = 2.d0*pi/real(rtNumPolBins,8)
+		allocate(thetas(rtNumPolBins+1))
+		allocate(phis(rtNumPolBins+1))
 		thetas(1) = 0.d0
 		phis(1) = 0.d0
-		do i=1,nBins
+		do i=1,rtNumPolBins
 			thetas(i+1) = i*stepTh
 			phis(i+1) = i*stepPh
 		end do
-		allocate(bY(nBins,nBins))
-		allocate(bB(nBins,nBins))
-		bY = 0
-		bB = 0
+		if(.not.(allocated(rtPolarBins))) then
+			allocate(rtPolarBins(rtNumPolBins,rtNumPolBins,rtNumLambdas))
+		end if
+		rtPolarBins = 0
 		open(nScrPts,file=fScrPts)
-		do i=1,nLines
+		do i=1,rtNumScrPts
 			read(nScrPts,'(3(e16.9,2x),i2)') pt,lambda
 			! Remember to change next line to use an arbitrary origin
 			dir = pt/(norm2(pt))
@@ -416,30 +440,155 @@ module problem
 			else
 				cycle
 			end if
-			do j=1,nBins
+			do j=1,rtNumPolBins
 				if((th.gt.thetas(j)).and.(th.lt.thetas(j+1)))then
-					binTh = j
+					bTh = j
 				end if
 				if((ph.gt.phis(j)).and.(ph.lt.phis(j+1))) then
-					binPh = j
+					bPh = j
 				end if
 			end do
 			if(lambda .eq. lcYellow) then
-				bY(binTh,binPh) = bY(binTh,binPh) + 1
+				rtPolarBins(bTh,bPh,2)=rtPolarBins(bTh,bPh,2) + 1
 			else
-				bB(binTh,binPh) = bB(binTh,binPh) + 1
+				rtPolarBins(bTh,bPh,1)=rtPolarBins(bTh,bPh,1) + 1
 			end if
 		end do
 		close(nScrPts)
 
 		open(nScrBins,file=fScrBins)
-		do i=1,nBins
-			write(nScrBins,'(<nBins>(i8,2x))') bY(i,:)
-			write(nScrBins,'(<nBins>(i8,2x))') bB(i,:)
+		do i=1,rtNumPolBins
+			write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,2)
+			write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,1)
 		end do
 		close(nScrBins)
 
 	end subroutine binScreenPolar
+
+	subroutine getScreenAngleFluxes()
+		integer,parameter :: nScrPts=155,nScrAngFlx=156,lcYellow=6,		&
+		lcBlue=3,nAngles=26	! note that the number of angles is a parameter
+		integer :: i,j,lambda,nLines
+		real(8) :: th,dTh,stepTh,pt(3),dir(3),thetas(nAngles),			&
+		areas(nAngles)
+		real(8),allocatable :: ptFluxes(:,:)
+		character :: fScrPts*72,fScrAngFluxes*72
+
+		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
+		fScrAngFluxes=commResDir//trim(adjustl(rtfResPre))//"_scrPtFluxes.res"
+!		open(nScrPts,file=fScrPts)
+!		call getFileNumLines(nScrPts,nLines)
+!		close(nScrPts)
+!		write(*,*) "nTotalPoints: ", nLines
+
+		allocate(ptFluxes(nAngles,2))
+		ptFluxes = 0
+		stepTh = pi/(2.d0*(nAngles-1))
+		dTh = pi/180.d0
+		do j=1,nAngles
+			thetas(j) = (j-1)*stepTh
+			if((j.gt.1).and.(j.lt.nAngles)) then
+				areas(j) = 2.d0*pi*(cos(thetas(j)-dTh) - 				&
+				cos(thetas(j)+dTh))
+			else
+				if(j.eq.1) then
+					areas(j) = 2.d0*pi*(cos(thetas(j)) - 				&
+					cos(thetas(j)+dTh))
+				elseif(j.eq.nAngles) then
+					areas(j) = 2.d0*pi*(cos(thetas(j)-dTh) -			&
+					cos(thetas(j)))
+				end if
+			end if
+		end do
+		open(nScrPts,file=fScrPts)
+		do i=1,rtNumScrPts
+			read(nScrPts,'(3(e16.9,2x),i2)') pt,lambda
+			! Remember to change next line to use an arbitrary origin
+			dir = pt/(norm2(pt))
+			! Points going backward have to be ignored 
+			! (although there shouldn't be any)
+			if(dir(3).lt. 0.d0) cycle
+			! otherwise, theta is just the angle subtended
+			th = acos(dir(3))
+			do j=1,nAngles
+				if(abs(th-thetas(j)).lt.dTh) then
+					if(lambda.eq.lcBlue) then
+						ptFluxes(j,1) = ptFluxes(j,1) + rtRefRayPow
+					elseif(lambda.eq.lcYellow) then
+						ptFluxes(j,2) = ptFluxes(j,2) + rtRefRayPow
+					else
+						write(*,'(a)') "Point colour not recognised."
+					end if
+					exit
+				end if
+			end do
+		end do
+		close(nScrPts)
+
+		ptFluxes(:,1) = ptFluxes(:,1)/areas
+		ptFluxes(:,2) = ptFluxes(:,2)/areas
+		open(nScrAngFlx,file=fScrAngFluxes)
+		do i=1,nAngles
+			write(nScrAngFlx,'(5(e16.9,2x))') ptFluxes(i,:),			&
+			sum(ptFluxes(i,:)),ptFluxes(i,:)/sum(ptFluxes(i,:))
+		end do
+		close(nScrAngFlx)
+	end subroutine getScreenAngleFluxes
+
+	subroutine getScreenBinFluxes()
+		integer,parameter :: nScrFluxes=153
+		integer :: i,j,k
+		real(8) :: th,ph,stepTh
+		real(8),allocatable :: thetas(:),areas(:)
+		character :: fScrFluxes*72
+
+		fScrFluxes=commResDir//trim(adjustl(rtfResPre))//"_scrFlx.out"
+		if(.not.(allocated(rtScrFluxes))) then
+			allocate(rtScrFluxes(rtNumPolBins,rtNumLambdas))
+		end if
+		allocate(thetas(rtNumPolBins+1))
+		allocate(areas(rtNumPolBins))
+		thetas = 0.d0;
+		stepTh = pi/(2.d0*real(rtNumPolBins,8))
+		
+		do i=1,rtNumPolBins
+			thetas(i+1) = i*stepTh
+			areas(i) = 2*pi*(cos(thetas(i))-cos(thetas(i+1)))
+			rtScrFluxes(i,1) = rtRefRayPow*sum(rtPolarBins(i,:,1))/areas(i)
+			rtScrFluxes(i,2) = rtRefRayPow*sum(rtPolarBins(i,:,2))/areas(i)
+		end do
+		
+		open(nScrFluxes,file=fScrFluxes)
+		do i=1,rtNumPolBins
+			write(nScrFluxes,'(5(e16.9,2x))') rtScrFluxes(i,:),			&
+			sum(rtScrFluxes(i,:)),rtScrFluxes(i,:)/sum(rtScrFluxes(i,:))
+		end do
+		close(nScrFluxes)
+		call adjustFluxesBinwise()
+	end subroutine getScreenBinFluxes
+
+	subroutine adjustFluxesBinwise()
+		integer,parameter :: nMatchedFluxes=154,nMatchBins=26
+		integer :: i,j,k
+		real(8) :: adjFluxes(nMatchBins,2)
+		character :: fAdjFluxes*72
+
+		fAdjFluxes=commResDir//trim(adjustl(rtfResPre))//"_scrAdjFlx.out"
+		j = 1
+		do i=2,rtNumPolBins-2,2
+			j = j+1
+			adjFluxes(j,1) = (rtScrFluxes(i,1) + rtScrFluxes(i+1,1))/2.d0
+			adjFluxes(j,2) = (rtScrFluxes(i,2) + rtScrFluxes(i+1,2))/2.d0
+		end do
+		adjFluxes(1,:) = rtScrFluxes(1,:)
+		adjFluxes(nMatchBins,:) = rtScrFluxes(rtNumPolBins,:)
+		open(nMatchedFluxes,file=fAdjFluxes)
+		do i=1,nMatchBins
+			write(nMatchedFluxes,'(5(e16.9,2x))') adjFluxes(i,:),		&
+			sum(adjFluxes(i,:)),adjFluxes(i,:)/sum(adjFluxes(i,:))
+		end do
+		close(nMatchedFluxes)
+	end subroutine adjustFluxesBinwise
 
 	subroutine binWallPoints(nBins,scrMin,scrMax)
 		integer,parameter :: nScrIncs=151,nScrBins=152,lcYellow=6,		&
@@ -452,16 +601,18 @@ module problem
 		character(*),parameter :: fSfEmPts=commResDir//"wallIncs.out",	&
 								  fScPtsBin=commResDir//"wallBins.out"
 
-		open(nScrIncs,file=fSfEmPts)
-		call getFileNumLines(nScrIncs,nLines)
-		write(*,*) "nLines: ", nLines
+!		open(nScrIncs,file=fSfEmPts)
+!		call getFileNumLines(nScrIncs,nLines)
+!		write(*,*) "nLines: ", nLines
+		write(*,'(a,2x,i8)')"Number of screen points: ", rtNumScrPts
+		write(*,'(a,2x,i8)')"Number of bottom points: ", rtNumBotPts
 		edges = scrMax - scrMin
 		allocate(bY(nBins,nBins))
 		allocate(bB(nBins,nBins))
 		bY = 0
 		bB = 0
 		open(nScrIncs,file=fSfEmPts)
-		do i=1,nLines
+		do i=1,rtNumScrPts
 			read(nScrIncs,'(3(e16.9,2x),i2)') pt,lambda
 			bLocs = nint(((pt(1:2)-scrMin(1:2))/edges(1:2))*nBins)
 			if((bLocs(1).gt.0).and.(bLocs(2).gt.0)) then
