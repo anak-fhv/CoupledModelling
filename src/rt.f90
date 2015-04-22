@@ -32,12 +32,52 @@ module rt
 	rtCTEmSfVals(:),rtCQEmSfVals(:),rtParDiffSfVals(:),rtCTEmSfTemps(:),&
 	rtParSpecSfVals(:),rtEmSpectr(:,:),rtReEmSpectr(:,:),rtBeta(:,:),	&
 	rtKappa(:,:),rtSigma(:,:),rtRefrInd(:,:),rtReEmThr(:,:),			&
-	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:),rtScrFluxes(:,:)
+	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:),rtScrFluxes(:,:),		&
+	rtYBR(:)
 	character :: rtfResPre*32,rtEmSpFile*72,rtReEmSpFile*72
 	logical :: rtRepeatMesh
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
 
 	contains
+
+	subroutine rtClose()
+		if(allocated(rtEmSfIds)) deallocate(rtEmSfIds)
+		if(allocated(rtCTEmSfIds)) deallocate(rtCTEmSfIds)
+		if(allocated(rtCQEmSfIds)) deallocate(rtCQEmSfIds)
+		if(allocated(rtBBSfIds)) deallocate(rtBBSfIds)
+		if(allocated(rtTrSfIds)) deallocate(rtTrSfIds)
+		if(allocated(rtNpSfIds)) deallocate(rtNpSfIds)
+		if(allocated(rtElemAbs)) deallocate(rtElemAbs)
+		if(allocated(rtElemSto)) deallocate(rtElemSto)
+		if(allocated(rtWallInf)) deallocate(rtWallInf)
+		if(allocated(rtParSfIds)) deallocate(rtParSfIds)
+		if(allocated(rtParDiffSfIds)) deallocate(rtParDiffSfIds)
+		if(allocated(rtParSpecSfIds)) deallocate(rtParSpecSfIds)
+		if(allocated(rtActBys)) deallocate(rtActBys)
+		if(allocated(rtDomColCon)) deallocate(rtDomColCon)
+		if(allocated(rtPolarBins)) deallocate(rtPolarBins)
+		if(allocated(rtWallSrc)) deallocate(rtWallSrc)
+		if(allocated(rtNodalSrc)) deallocate(rtNodalSrc)
+		if(allocated(rtPFTable)) deallocate(rtPFTable)
+		if(allocated(rtCTEmSfVals)) deallocate(rtCTEmSfVals)
+		if(allocated(rtCQEmSfVals)) deallocate(rtCQEmSfVals)
+		if(allocated(rtParDiffSfVals)) deallocate(rtParDiffSfVals)
+		if(allocated(rtCTEmSfTemps)) deallocate(rtCTEmSfTemps)
+		if(allocated(rtParSpecSfVals)) deallocate(rtParSpecSfVals)
+		if(allocated(rtEmSpectr)) deallocate(rtEmSpectr)
+		if(allocated(rtReEmSpectr)) deallocate(rtReEmSpectr)
+		if(allocated(rtBeta)) deallocate(rtBeta)
+		if(allocated(rtKappa)) deallocate(rtKappa)
+		if(allocated(rtSigma)) deallocate(rtSigma)
+		if(allocated(rtRefrInd)) deallocate(rtRefrInd)
+		if(allocated(rtReEmThr)) deallocate(rtReEmThr)
+		if(allocated(rtAbsThr)) deallocate(rtAbsThr)
+		if(allocated(rtAnisFac)) deallocate(rtAnisFac)
+		if(allocated(rtSfPowRatio)) deallocate(rtSfPowRatio)
+		if(allocated(rtScrFluxes)) deallocate(rtScrFluxes)
+		if(allocated(rtYBR)) deallocate(rtYBR)
+		if(allocated(rtEmSurfs)) deallocate(rtEmSurfs)
+	end subroutine rtClose
 
 	subroutine rtInit()
 		integer :: i
@@ -62,7 +102,9 @@ module rt
 		rtEmSfIds = (/rtCTEmSfIds,rtCQEmSfIds/)
 		rtParSfIds = (/rtParDiffSfIds,rtParSpecSfIds/)
 		rtActBys = (/rtBBSfIds,rtTrSfIds,rtNpSfIds,rtParSfIds/)
-		call popLargeSphDiffMuTable()
+		if(rtSctThr.eq.1) then
+			call popLargeSphDiffMuTable()
+		end if
 		if(rtNumCTEmSfs .gt. 0) then
 			call getRtCTEmSfVals()
 			do i=1,rtNumCTEmSfs
@@ -72,39 +114,44 @@ module rt
 		end if
 		if(.not.(allocated(rtElemAbs))) then
 			allocate(rtElemAbs(meshNumElems))
+			rtElemAbs = 0
 		end if
 		if(.not.(allocated(rtElemSto))) then
 			allocate(rtElemSto(meshNumElems))
+			rtElemSto = 0
 		end if
 		if(.not.(allocated(rtWallInf))) then
 			allocate(rtWallInf(meshNumElems))
+			rtWallInf = 0
 		end if
 		if(.not.(allocated(rtWallSrc))) then
 			allocate(rtWallSrc(meshNumNodes))
+			rtWallSrc = 0.d0
 		end if
 		if(.not.(allocated(rtNodalSrc))) then
 			allocate(rtNodalSrc(meshNumNodes))
+			rtNodalSrc = 0.d0
 		end if
-		rtElemAbs = 0
-		rtElemSto = 0
-		rtWallInf = 0
-		rtWallSrc = 0.0d0
-		rtNodalSrc = 0.0d0
-		rtParSfAbsNum = 0
+
+!		Set all single valued variables to zero (ones not supplied by data file)
 		rtNtraces = 0
-		rtTrExitNum = 0
 		rtBBAbsNum = 0
+		rtTrExitNum = 0
+		rtParSfAbsNum = 0
 		rtAbsNoReEmCt = 0
 		rtInVolAbsCt = 0
+		rtTransBetnDomsCt = 0
 		rtIfcInc = 0
 		rtIntRefCt = 0
 		rtFreRefCt = 0
-		rtTransBetnDomsCt = 0
 		rtNumScrPts = 0
 		rtNumBotPts = 0
 		rtYellExits = 0
 		rtBlueExits = 0
 		rtColConvs = 0
+		rtTotExitPow = 0.d0
+		rtBlueExitPow = 0.d0
+		rtYellExitPow = 0.d0
 		call getRtSfPowRatio()
 		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call CreateUniformEmissionSurfaces()
@@ -118,6 +165,14 @@ module rt
 		write(*,'(a,2x,i4)')"rtLimOutPts: ",rtLimOutPts
 		write(*,'(a,2x,i4)')"rtLimReEmDrops: ",rtLimReEmDrops
 		write(*,'(a,2x,e14.6)')"rtLamPowRatio: ",rtLamPowRatio
+		write(*,'(a)')"rtKappa:"
+		do i=1,meshNumDoms
+			write(*,'(2(e14.6,2x))') rtKappa(i,:)
+		end do
+		write(*,'(a)')"rtSigma:"
+		do i=1,meshNumDoms
+			write(*,'(2(e14.6,2x))') rtSigma(i,:)
+		end do
 		write(*,'(/a)')"Now starting with the tracing."
 	end subroutine rtInit
 
@@ -157,6 +212,7 @@ module rt
 
 		if(.not.(allocated(rtSfPowRatio))) then
 			allocate(rtSfPowRatio(rtNumEmSfs))
+			rtSfPowRatio = 0.d0
 		end if
 		if(rtNumEmSfs .eq. 1) then
 			rtSfPowRatio = (/1.d0/)
@@ -857,7 +913,7 @@ module rt
 					 fExitPts*72,fScrPts*72,fOutPts*72,fBotPts*72
 
 
-		fSfEmPts=commResDir//trim(adjustl(rtfResPre))//"_surfems.out"
+!		fSfEmPts=commResDir//trim(adjustl(rtfResPre))//"_surfems.out"
 		fSfAbPts=commResDir//trim(adjustl(rtfResPre))//"_surfpts.out"
 		fSctDirs=commResDir//trim(adjustl(rtfResPre))//"_sctDirs.out"
 		fReEmDrp=commResDir//trim(adjustl(rtfResPre))//"_reEmDrp.out"
@@ -865,7 +921,7 @@ module rt
 		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
 		fOutPts=commResDir//trim(adjustl(rtfResPre))//"_outPts.out"
 		fBotPts=commResDir//trim(adjustl(rtfResPre))//"_botPts.out"
-		open(nSfEmFil,file=fSfEmPts)
+!		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
 		open(nScrPts,file=fScrPts)
 		open(nSctDirs,file=fSctDirs)
@@ -879,7 +935,7 @@ module rt
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
 			call startRayFromSurf(emEl,emFc,pInt,pt,dir)
-			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
+!			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
 			lambda = lcBlue
 			reEmCt = 0
 			rtCurrLambda = 1		! Hard coded, needs to change

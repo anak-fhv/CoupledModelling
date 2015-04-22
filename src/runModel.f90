@@ -39,7 +39,7 @@ program runModel
 		write (*,'(a,2x,a)') "Mesh data file: ", trim(fMesh)
 		call get_command_argument(3,fRt)
 		write (*,'(a,2x,a)') "MCRT data file: ", trim(fRt)
-		call simAnneal(fMesh,fRt)
+		call simAnnealing(fMesh,fRt)
 	elseif(simType .eq. "CM") then
 		write(*,'(/a)') "Coupled RT-FEM simulation selected."
 		if(ct .lt. 4) then

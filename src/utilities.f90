@@ -8,7 +8,7 @@ module utilities
 	NANO=1.0d-9,ANGSTROM=1.d-10,PICO=1.0d-12,DPICO=1.d-13
 	character(*),parameter :: commDatDir="../data/",					&
 	commResDir="../results/",commMeshExt=".msh",commDatExt=".dat",		&
-	commOutExt=".out",commVTKExt=".vtk"
+	commOutExt=".out",commVTKExt=".vtk",commResExt=".res"
 
 	contains
 
@@ -53,6 +53,20 @@ module utilities
 !	sometimes be specific to the tetrahedral elements, however, most are
 !	general routines.
 !-----------------------------------------------------------------------!
+
+	subroutine getBoxMuellerNormals(z1,z2)
+!		real(8) :: u1,u2
+!		real(8),intent(out) :: z1,z2
+		real(8),intent(inout) :: z1(:),z2(:)
+		real(8),allocatable :: u1(:),u2(:)
+
+		allocate(u1(size(z1,1)))
+		allocate(u2(size(z2,1)))
+		call random_number(u1)
+		call random_number(u2)
+		z1 = sqrt(-2.d0*log(u1))*cos(2.d0*pi*u2)
+		z2 = sqrt(-2.d0*log(u1))*sin(2.d0*pi*u2)
+	end subroutine getBoxMuellerNormals
 
 	subroutine solveQuadratic(a,b,c,x)
 		real(8) :: q
