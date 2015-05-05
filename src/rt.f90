@@ -21,7 +21,7 @@ module rt
 	rtNumParSpecSfs,rtParSfAbsNum,rtAbsNoReEmCt,rtInVolAbsCt,			&
 	rtTransBetnDomsCt,rtLoggerMode,rtNumActBys,rtCurrDom,rtNumLambdas,	&
 	rtCurrLambda,rtSctThr,rtIfcInc,rtIntRefCt,rtFreRefCt,rtNumPolBins,	&
-	rtNumScrPts,rtNumBotPts,rtYellExits,rtBlueExits,rtColConvs
+	rtNumScrPts,rtNumBotPts,rtYellExits,rtBlueExits,rtColConvs,rtRN
 	integer,allocatable :: rtEmSfIds(:),rtCTEmSfIds(:),rtCQEmSfIds(:),	&
 	rtBBSfIds(:),rtTrSfIds(:),rtNpSfIds(:),rtElemAbs(:),rtElemSto(:),	&
 	rtWallInf(:),rtParSfIds(:),rtParDiffSfIds(:),rtParSpecSfIds(:),		&
@@ -33,7 +33,7 @@ module rt
 	rtParSpecSfVals(:),rtEmSpectr(:,:),rtReEmSpectr(:,:),rtBeta(:,:),	&
 	rtKappa(:,:),rtSigma(:,:),rtRefrInd(:,:),rtReEmThr(:,:),			&
 	rtAbsThr(:,:),rtAnisFac(:,:),rtSfPowRatio(:),rtScrFluxes(:,:),		&
-	rtYBR(:)
+	rtYBR(:),rtRayTravs(:)
 	character :: rtfResPre*32,rtEmSpFile*72,rtReEmSpFile*72
 	logical :: rtRepeatMesh
 	type(emissionSurface),allocatable :: rtEmSurfs(:)
@@ -77,6 +77,7 @@ module rt
 		if(allocated(rtScrFluxes)) deallocate(rtScrFluxes)
 		if(allocated(rtYBR)) deallocate(rtYBR)
 		if(allocated(rtEmSurfs)) deallocate(rtEmSurfs)
+		if(allocated(rtRayTravs)) deallocate(rtRayTravs)
 	end subroutine rtClose
 
 	subroutine rtInit()
@@ -131,6 +132,10 @@ module rt
 		if(.not.(allocated(rtNodalSrc))) then
 			allocate(rtNodalSrc(meshNumNodes))
 			rtNodalSrc = 0.d0
+		end if
+		if(.not.(allocated(rtRayTravs))) then
+			allocate(rtRayTravs(rtMCNumRays))
+			rtRayTravs = 0.d0
 		end if
 
 !		Set all single valued variables to zero (ones not supplied by data file)
@@ -902,7 +907,7 @@ module rt
 	subroutine traceFromSurfLED()
 		integer,parameter :: nSfEmFil=191,nSfAbFil=192,nScrPts=193,		&
 		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,nBotPts=198,	&
-		lcYellow=6,lcBlue=3
+		nTravLen = 199,lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
 		lambda,elNodes(4),plcHlder
 		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
@@ -910,7 +915,8 @@ module rt
 		logical :: outPt,vExit,byAbs,scatter,reEmission,colCon
 		character(*),parameter :: wFmt = '(a,2x,i8)'
 		character :: fSfEmPts*72,fSfAbPts*72,fSctDirs*72,fReEmDrp*72,	&
-					 fExitPts*72,fScrPts*72,fOutPts*72,fBotPts*72
+					 fExitPts*72,fScrPts*72,fOutPts*72,fBotPts*72,		&
+					 fTravLen*72
 
 
 !		fSfEmPts=commResDir//trim(adjustl(rtfResPre))//"_surfems.out"
@@ -921,6 +927,7 @@ module rt
 		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
 		fOutPts=commResDir//trim(adjustl(rtfResPre))//"_outPts.out"
 		fBotPts=commResDir//trim(adjustl(rtfResPre))//"_botPts.out"
+		fTravLen=commResDir//trim(adjustl(rtfResPre))//"_travLen.out"
 !		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
 		open(nScrPts,file=fScrPts)
@@ -928,12 +935,14 @@ module rt
 		open(nReEmDrp,file=fReEmDrp)
 		open(nExitPts,file=fExitPts)
 		open(nBotPts,file=fBotPts)
+		open(nTravLen,file=fTravLen)
 		open(nOutPts,file=fOutPts,position='append')
 		outPtCt = 0
 		reEmDropCt = 0
 
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
+!			write(*,*) "Ray: ", i
 			call startRayFromSurf(emEl,emFc,pInt,pt,dir)
 !			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
 			lambda = lcBlue
@@ -947,7 +956,10 @@ module rt
 			if(rtNtraces .eq. 61) then
 				plcHlder = rtNtraces
 			end if
-			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
+			rtRN = i
+!			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
+!			byAbs,endEl,endPt,endDir)
+			call traceTrans(stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
 			byAbs,endEl,endPt,endDir)
 !			Handle the exit of a ray from the volume
 			if(vExit) then
@@ -1059,6 +1071,7 @@ module rt
 		write(*,'(a,2x,e14.6)')"Blue power leaving: ",rtBlueExitPow
 		write(*,'(a,2x,e14.6)')"Yellow power leaving: ",rtYellExitPow
 		write(*,'(a,2x,e14.6)')"Total power leaving: ",rtTotExitPow
+		write(nTravLen,'(e14.6)')rtRayTravs
 		close(nSfEmFil)
 		close(nSfAbFil)
 		close(nScrPts)
@@ -1111,11 +1124,14 @@ module rt
 !	from system from the previous code improved upon.
 !------------------------------------------------------------------------
 
-	subroutine traceTrans(rN,stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
+!	subroutine traceTrans(rN,stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
+!	byAbs,endEl,endPt,endDir)
+	subroutine traceTrans(stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
 	byAbs,endEl,endPt,endDir)
 		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,cDom,nhbrEl,		&
 		nhbrDom,nhbrSf,parById,elNodes(4)
-		integer,intent(in) :: stEl,rN,nFOutPts
+!		integer,intent(in) :: stEl,rN,nFOutPts
+		integer,intent(in) :: stEl,nFOutPts
 		integer,intent(out) :: endEl
 		real(8) :: lTrav,lToFc,optPath,cBeta,pt(3),dir(3),newDir(3),	&
 		ec(4,3)
@@ -1133,6 +1149,7 @@ module rt
 		endPt = 0.0d0
 		optPath = 0.0d0
 		endDir = 0.0d0
+		lTrav = 0.d0
 		outPt = .false.
 		vExit = .false.
 		byAbs = .false.
@@ -1147,6 +1164,7 @@ module rt
 			bbSfChk = .false.
 			trSfChk = .false.
 			npSfChk = .false.
+			parSfChk = .false.
 !			Initialise the face-check values
 			elNodes = meshElems(cEl)%nodes
 !			cDom = meshElems(cEl)%domain
@@ -1165,10 +1183,12 @@ module rt
 				exit
 			end if
 			pt = pt + lToFc*dir
+			lTrav = lTrav + lToFc
 			inFc = checkNewPt(pt,dir,ec,newFc)
 			if(.not. inFc) then
 				write(*,*) "Point traced not within face."
-				write(*,*) "Elnum: ",cEl, "Raynum: ",rN
+!				write(*,*) "Elnum: ",cEl, "Raynum: ",rN
+				write(*,*) "Elnum: ",cEl, "Raynum: ",rtRN
 				write(nFOutPts,'(a)') "Element, face and length: "
 				write(nFOutPts,'(i8,2x,i2,2x,f16.9)') cEl,newFc,lToFc
 				write(nFOutPts,'(a)') "Point and direction: "
@@ -1181,6 +1201,7 @@ module rt
 				outPt = .true.
 				vExit = .true.
 				optPath = MEGA
+!				rtRayTravs(rtRN) = lTrav
 				exit
 			end if
 !			Check if the neighbouring face is a system boundary or iface
@@ -1199,6 +1220,7 @@ module rt
 					byAbs = .true.
 					optPath = MEGA
 					rtBBAbsNum = rtBBAbsNum + 1
+					rtRayTravs(rtRN) = lTrav
 					exit
 				end if
 				if(trSfChk) then
@@ -1210,6 +1232,7 @@ module rt
 						optPath = MEGA
 						vExit = .true.
 						rtTrExitNum = rtTrExitNum + 1
+!						rtRayTravs(rtRN) = lTrav
 						exit
 					else
 						dir = newDir
@@ -1233,6 +1256,7 @@ module rt
 							optPath = MEGA
 							rtParSfAbsNum = rtParSfAbsNum + 1
 							byAbs = .true.
+!							rtRayTravs(rtRN) = lTrav
 							exit
 						else
 							dir = newDir
@@ -1249,6 +1273,7 @@ module rt
 							optPath = MEGA
 							rtParSfAbsNum = rtParSfAbsNum + 1
 							byAbs = .true.
+!							rtRayTravs(rtRN) = lTrav
 							exit
 						else
 							dir = newDir

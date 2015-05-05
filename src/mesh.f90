@@ -35,7 +35,8 @@ module mesh
 	meshNumBys,meshNumIntfcs
 	integer,allocatable :: meshBys(:),meshIntfcs(:),meshStColPtr(:),	&
 	meshStRowPtr(:)
-	real(8) :: meshScalFac,meshExtFcTotA,meshIntFcTotA
+	real(8) :: meshScalFac,meshExtFcTotA,meshIntFcTotA,meshMaxDist,		&
+	meshMaxCorner(3),meshMinCorner(3)
 	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
 	meshVerts(:,:),meshStVals(:),meshDomVols(:)
 	type(tetraElement),allocatable :: meshElems(:)
@@ -70,6 +71,18 @@ module mesh
 		meshNumSurfs = mDets(7)
         call readmeshvertices(fNum)
 		meshVerts = meshVerts*meshScalFac
+		meshMaxCorner(1) = maxval(meshVerts(:,1))
+		meshMaxCorner(2) = maxval(meshVerts(:,2))
+		meshMaxCorner(3) = maxval(meshVerts(:,3))
+		meshMinCorner(1) = minval(meshVerts(:,1))
+		meshMinCorner(2) = minval(meshVerts(:,2))
+		meshMinCorner(3) = minval(meshVerts(:,3))
+		write(*,*)"maxval meshVerts: "
+		write(*,'(3(e14.6,2x))') meshMaxCorner
+		write(*,*)"minval meshVerts: "
+		write(*,'(3(e14.6,2x))') meshMinCorner
+		meshMaxDist = norm2(meshMaxCorner-meshMinCorner)
+		write(*,'(a,2x,e14.6)')"MeshMaxDist: ", meshMaxDist
         call readMeshElements(fNum)
         call readMeshElementDomains(fNum)
         call readMeshSurfaces(fNum)

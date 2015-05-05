@@ -55,8 +55,6 @@ module utilities
 !-----------------------------------------------------------------------!
 
 	subroutine getBoxMuellerNormals(z1,z2)
-!		real(8) :: u1,u2
-!		real(8),intent(out) :: z1,z2
 		real(8),intent(inout) :: z1(:),z2(:)
 		real(8),allocatable :: u1(:),u2(:)
 

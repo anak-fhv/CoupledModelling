@@ -71,11 +71,12 @@ module problem
 	end subroutine rtSimple
 
 	subroutine simAnnealing(fMesh,fRt)
-		integer,parameter :: nSARuns = 300,nBins = 26,nSpecDat = 161,	&
-		nRunsDat = 162, nCFs = 163
+		integer,parameter :: nSARuns = 400,nBins = 26,nSpecDat = 161,	&
+		nRunsDat = 162, nCFs = 163, nParams = 5
 		integer :: i,j,k,saCt
 		real(8),parameter :: T0=0.1d0,kapL=2500.d0,kapH=10000.d0,		&
-		sigL=2000.d0,sigH=12000.d0,gL=-0.99d0,gH=0.99d0
+		sigL=2000.d0,sigH=12000.d0,gL=-0.99d0,gH=0.99d0,nL=1.5d0,		&
+		nH = 1.8d0
 		real(8) :: fCost0,fCostn,T1,Tk,vSpaceRad,simRad,dev,rad,		&
 		probFunc,selCheck,stoppingCrit,zSel
 		real(8),allocatable :: rKnown(:),rRun(:),uniVec(:),newVals(:),	&
@@ -96,105 +97,140 @@ module problem
 		end do
 		close(nSpecDat)
 
-!		Calculate maximum radius in variable space
-		allocate(lVals(4))
-		allocate(hVals(4))
-		lVals = (/kapL,sigL,sigL,gL/)	! Note: 2 sigmas used, one for each lambda
-		hVals = (/kapH,sigH,sigH,gH/)	! Only one kappa (assuming kappaY = 10.d0)
-		vSpaceRad = norm2(hVals-lVals)
-		simRad = 0.d0					! r = gaussian distributed around simRad (r0)
-		dev = 0.33*vSpaceRad			! standard deviation, initial step
-		allocate(uniVec(4))					! kapBlue,sigBlue,sigYell,g
-		allocate(z1(4))
-		allocate(z2(4))
-		allocate(newVals(4))
-		allocate(x0(4))
-		allocate(xBetter(4))
 		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
 		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
 		call readMeshDataFile(fMeshDat)
-		call readRtDataFile(fRtDat)
-		x0 = (/rtKappa(2,1),rtSigma(2,:),rtAnisFac(2,1)/)	! Hard coded for domain 2 right now.
-		xBetter = x0					! At the start, the better function loc is the same
-		call rtInit()
-		call traceFromSurfLED()
-		call binScreenPolar()
-		call getScreenBinFluxes()
-		rRun = rtYBR
-		fCost0 = norm2(rRun-rKnown)
-		call rtClose()
-		stoppingCrit = fCost0*0.01d0
-		T1 = T0 - 0.01d0*T0
-
-!		Now to start the iterations
-		rtRepeatMesh = .true.
-		fRunsDat = commResDir//trim(adjustl(fRuns))//commResExt
+		allocate(uniVec(nParams))					! kapBlue,sigBlue,sigYell,g
+		allocate(lVals(nParams))
+		allocate(hVals(nParams))
+		allocate(x0(nParams))
+		allocate(xBetter(nParams))
+		allocate(z1(nParams))
+		allocate(z2(nParams))
+		allocate(newVals(nParams))
+		lVals = (/kapL,sigL,sigL,gL,nL/)	! Note: 2 sigmas used, one for each lambda
+		hVals = (/kapH,sigH,sigH,gH,nH/)	! Only one kappa (assuming kappaY = 10.d0)
 		fCosts = commResDir//trim(adjustl(fcfs))//commResExt
 		open(nCFs,file=fCosts)
+		fRunsDat = commResDir//trim(adjustl(fRuns))//commResExt
 		open(nRunsDat,file=fRunsDat)
-		write(nRunsDat,*) "Starting Cost Function: ", fCost0
-		write(nCFs,'(5(e14.6,2x))') fCost0,x0
+!-----------------------------------------------------------------------!
+!	Random search in space
+!-----------------------------------------------------------------------!
 		do i=1,nSARuns
-			Tk = T1
-			inspace = .false.
-			do while(.not.(inspace))
-				call getBoxMuellerNormals(z1,z2)
-				call random_number(zSel)
-				if(zSel .lt. 0.5d0) then
-					uniVec = z1/norm2(z1)
-					rad = dev*z2(1) + simRad
-				else
-					uniVec = z2/norm2(z2)
-					rad = dev*z1(1) + simRad
-				end if
-				newVals = x0 + rad*uniVec
-				call valsInSpaceCheck(lVals,hVals,newVals,inspace)
-			end do
-			write(*,'(a)')"New values in simulation: "
-			write(*,'(4(e14.6,2x))') newVals
-			write(nRunsDat,*) "Values in the run number: ", i
-			write(nRunsDat,'(4(e14.6,2x))') newVals
+			if(i.gt.1) then
+				rtRepeatMesh = .true.
+			end if
 			call readRtDataFile(fRtDat)
-			rtKappa(2,1) = newVals(1)
-			rtSigma(2,:) = newVals(2:3)
-			rtAnisFac(2,:) = newVals(4)
+			call random_number(uniVec)
+			rtKappa(2,1) = uniVec(1)*(hVals(1)-lVals(1)) + lVals(1)
+			rtSigma(2,:) = uniVec(2:3)*(hVals(2:3)-lVals(2:3)) + lVals(2:3)
+			rtAnisFac(2,:) = uniVec(4)*(hVals(4)-lVals(4)) + lVals(4)
+			rtRefrInd(2,:) = uniVec(5)*(hVals(5)-lVals(5)) + lVals(5)
+			x0 = (/rtKappa(2,1),rtSigma(2,:),rtAnisFac(2,1),rtRefrInd(2,1)/)
 			call rtInit()
 			call traceFromSurfLED()
 			call binScreenPolar()
 			call getScreenBinFluxes()
 			rRun = rtYBR
 			fCostn = norm2(rRun-rKnown)
+			write(nCFs,'(6(e14.6,2x))') fCostn,x0
 			call rtClose()
-			probFunc = exp((fCost0-fCostn)/Tk)
-			call random_number(selCheck)
-			write(nRunsDat,*) "New Cost Function: ", fCostn
-			write(nRunsDat,*) "New Probability Function: ", probFunc
-			write(nRunsDat,*) "Selection check: ",selCheck
-			if(fCostn .lt. fCost0) then
-				x0 = newVals
-				dev = dev*exp(-1.d0/(real(nSARuns/2,8)))
-				fCost0 = fCostn
-				Tk = ((T1/T0)**real(i,8))*Tk
-				write(nRunsDat,*)"New point chosen since fCostn < fCost0."
-				write(nCFs,'(5(e14.6,2x))') fCostn,x0
-			else
-				if(selCheck .lt. probFunc) then
-					xBetter = x0
-					x0 = newVals
-					Tk = ((T1/T0)**real(i,8))*Tk
-					write(nRunsDat,*)"Tk = ",Tk
-					write(nRunsDat,*)"New point chosen from selCheck."
-					write(nCFs,'(5(e14.6,2x))') fCostn,x0
-				else
-					cycle
-				end if
-			end if
-			if(fCostn .lt. stoppingCrit) then
-				write(*,'(a)') "Simulation reached stopping criterion."
-				write(*,'(a)')"New values in simulation: "
-				write(*,'(4(e14.6,2x))') newVals				
-			end if
 		end do
+
+!-----------------------------------------------------------------------!
+!	Simulated annealing algorithm
+!-----------------------------------------------------------------------!
+
+!!		Calculate maximum radius in variable space
+!		vSpaceRad = norm2(hVals-lVals)
+!		write(*,*)"vSpaceRad: ",vSpaceRad
+!		dev = 0.2d0*vSpaceRad			! standard deviation, initial step
+!		call readRtDataFile(fRtDat)
+!		x0 = (/rtKappa(2,1),rtSigma(2,:),rtAnisFac(2,1),rtRefrInd(2,1)/)	! Hard coded for domain 2 right now.
+!		xBetter = x0					! At the start, the better function loc is the same
+!		call rtInit()
+!		call traceFromSurfLED()
+!		call binScreenPolar()
+!		call getScreenBinFluxes()
+!		rRun = rtYBR
+!		fCost0 = norm2(rRun-rKnown)
+!		call rtClose()
+!		write(nRunsDat,'(5(e14.6,2x))') x0
+!		write(nRunsDat,*) "Starting Cost Function: ", fCost0
+!		write(nCFs,'(6(e14.6,2x))') fCost0,x0
+!		stoppingCrit = fCost0*0.01d0
+!		T1 = T0 - 0.01d0*T0
+
+!!		Now to start the iterations
+!		rtRepeatMesh = .true.
+!		do i=1,nSARuns
+!			Tk = T1
+!			inspace = .false.
+!			do while(.not.(inspace))
+!				call getBoxMuellerNormals(z1,z2)
+!				call random_number(zSel)
+!				if(zSel .lt. 0.5d0) then
+!					uniVec = z1/norm2(z1)
+!					rad = dev*z2(1)
+!				else
+!					uniVec = z2/norm2(z2)
+!					rad = dev*z1(1)
+!				end if
+!				newVals = x0 + rad*uniVec
+!				call valsInSpaceCheck(lVals,hVals,newVals,inspace)
+!				if(.not.(inspace)) then
+!					write(*,*) "Not in space"
+!					write(*,'(6(e14.6,2x))') rad, newVals
+!					stop
+!				end if
+!			end do
+!			write(*,'(a)')"New values in simulation: "
+!			write(*,'(4(e14.6,2x))') newVals
+!			write(nRunsDat,*) "Values in the run number: ", i
+!			write(nRunsDat,'(5(e14.6,2x))') newVals
+!			call readRtDataFile(fRtDat)
+!			rtKappa(2,1) = newVals(1)
+!			rtSigma(2,:) = newVals(2:3)
+!			rtAnisFac(2,:) = newVals(4)
+!			rtRefrInd(2,:) = newVals(5)
+!			call rtInit()
+!			call traceFromSurfLED()
+!			call binScreenPolar()
+!			call getScreenBinFluxes()
+!			rRun = rtYBR
+!			fCostn = norm2(rRun-rKnown)
+!			call rtClose()
+!			probFunc = exp((fCost0-fCostn)/Tk)
+!			call random_number(selCheck)
+!			write(nRunsDat,*) "New Cost Function: ", fCostn
+!			write(nRunsDat,*) "New Probability Function: ", probFunc
+!			write(nRunsDat,*) "Selection check: ",selCheck
+!			if(fCostn .lt. fCost0) then
+!				x0 = newVals
+!				dev = dev*exp(-1.d0/(real(nSARuns/2,8)))
+!				fCost0 = fCostn
+!				Tk = ((T1/T0)**real(i,8))*Tk
+!				write(nRunsDat,*)"New point chosen since fCostn < fCost0."
+!				write(nCFs,'(6(e14.6,2x))') fCostn,x0
+!			else
+!				if(selCheck .lt. probFunc) then
+!					xBetter = x0
+!					x0 = newVals
+!					Tk = ((T1/T0)**real(i,8))*Tk
+!					write(nRunsDat,*)"Tk = ",Tk
+!					write(nRunsDat,*)"New point chosen from selCheck."
+!					write(nCFs,'(6(e14.6,2x))') fCostn,x0
+!				else
+!					cycle
+!				end if
+!			end if
+!			if(fCostn .lt. stoppingCrit) then
+!				write(*,'(a)') "Simulation reached stopping criterion."
+!				write(*,'(a)')"New values in simulation: "
+!				write(*,'(5(e14.6,2x))') newVals				
+!			end if
+!		end do
 	end subroutine simAnnealing
 
 	subroutine valsInSpaceCheck(lows,highs,inVals,check)
@@ -577,8 +613,12 @@ module problem
 
 		open(nScrBins,file=fScrBins)
 		do i=1,rtNumPolBins
-			write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,2)
-			write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,1)
+			if(rtNumLambdas.eq. 2) then
+				write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,2)
+				write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,1)
+			else
+				write(nScrBins,'(<rtNumPolBins>(i8,2x))') rtPolarBins(i,:,1)
+			end if
 		end do
 		close(nScrBins)
 
@@ -669,8 +709,12 @@ module problem
 		do i=1,rtNumPolBins
 			thetas(i+1) = i*stepTh
 			areas(i) = 2*pi*(cos(thetas(i))-cos(thetas(i+1)))
-			rtScrFluxes(i,1) = rtRefRayPow*sum(rtPolarBins(i,:,1))/areas(i)
-			rtScrFluxes(i,2) = rtLamPowRatio*rtRefRayPow*sum(rtPolarBins(i,:,2))/areas(i)
+			if(rtNumLambdas.eq. 2) then
+				rtScrFluxes(i,1) = rtRefRayPow*sum(rtPolarBins(i,:,1))/areas(i)
+				rtScrFluxes(i,2) = rtLamPowRatio*rtRefRayPow*sum(rtPolarBins(i,:,2))/areas(i)
+			else
+				rtScrFluxes(i,1) = rtRefRayPow*sum(rtPolarBins(i,:,1))/areas(i)
+			end if
 		end do
 		
 		open(nScrFluxes,file=fScrFluxes)
@@ -707,7 +751,9 @@ module problem
 		if(.not.(allocated(rtYBR))) then
 			allocate(rtYBR(nMatchBins))
 		end if
-		rtYBR = adjFluxes(:,2)/adjFluxes(:,1)
+		if(rtNumLambdas.eq. 2) then
+			rtYBR = adjFluxes(:,2)/adjFluxes(:,1)
+		end if
 	end subroutine getAngleFluxes
 
 	subroutine binWallPoints(nBins,scrMin,scrMax)
