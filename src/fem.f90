@@ -20,7 +20,7 @@ module fem
 	real(8) :: femAmbT
 	real(8),allocatable :: femKs(:),femBVals(:),femRhos(:),femCaps(:),	&
 	femSrc(:),femTvals(:),femStVals(:),femCpVals(:),femDomGens(:),		&
-	femDomGenPerVol(:)
+	femDomGenPerVol(:),femSurfQdot(:)
 	logical :: femBCsKnown,femSysAssembled,femTransient,femUnifGen
 	character(72) :: femByFile="boundaries",femResFile="res",			&
 	femSolverType="BiCGStab",femTrScheme="rk"
@@ -67,15 +67,28 @@ module fem
 			call setMeshNodalValues(femTvals,"T")
 			call writeVtkResults()
 			call writeNodalResults()
-			if(allocated(femSt)) deallocate(femSt)
-			if(allocated(femSrc)) deallocate(femSrc)
-			if(allocated(femTvals)) deallocate(femTvals)
-			if(allocated(femStVals)) deallocate(femStVals)
-			if(allocated(femStRowPtr)) deallocate(femStRowPtr)
-			if(allocated(femStColPtr)) deallocate(femStColPtr)
 		end if
 		write(*,'(/a)')"Exiting FEM module."
 	end subroutine runFem
+
+	subroutine femClose()
+		if(allocated(femBCs)) deallocate(femBCs)
+		if(allocated(femKs)) deallocate(femKs)
+		if(allocated(femBVals)) deallocate(femBVals)
+		if(allocated(femRhos)) deallocate(femRhos)
+		if(allocated(femCaps)) deallocate(femCaps)
+		if(allocated(femDomGens)) deallocate(femDomGens)
+		if(allocated(femSt)) deallocate(femSt)
+		if(allocated(femSrc)) deallocate(femSrc)
+		if(allocated(femTvals)) deallocate(femTvals)
+		if(allocated(femStVals)) deallocate(femStVals)
+		if(allocated(femDomGenPerVol)) deallocate(femDomGenPerVol)
+		if(allocated(femSurfQdot)) deallocate(femSurfQdot)
+		if(allocated(femStRowPtr)) deallocate(femStRowPtr)
+		if(allocated(femStColPtr)) deallocate(femStColPtr)
+		if(allocated(femCpRowPtr)) deallocate(femCpRowPtr)
+		if(allocated(femCpColPtr)) deallocate(femCpColPtr)
+	end subroutine femClose
 
 	subroutine femInitMesh()
 
@@ -898,6 +911,37 @@ module fem
 !-----------------------------------------------------------------------!
 !	Routines for postprocessing of results
 !-----------------------------------------------------------------------!
+
+    subroutine femGetSurfQdot(sfNum,axInd)
+        integer,intent(in) :: sfNum,axInd
+        integer :: i,j,k,numFcs,coeffInd,elNum,fcNum,elDom,elnodes(4),    &
+        fcnodes(3)
+        real(8) :: qFace,elK,elC,elRho,elVol,fcArea,aSf,elTs(4),        &
+        sfFnCoeff(4),elSpFns(4,4)
+        type(surface) :: graSf
+
+		if(.not.(allocated(femSurfQdot))) then
+			allocate(femSurfQdot(meshNumSurfs))
+		end if
+        graSf = meshSurfs(sfNum)
+        numFcs = graSf%numFcs
+        coeffInd = axInd + 1
+        qFace = 0.d0
+        aSf = 0.d0
+        do i=1,numFcs
+            elNum = graSf%elNum(i)
+            fcNum = graSf%fcNum(i)
+			fcArea = graSf%fcArea(i)
+            elNodes = meshElems(elNum)%nodes
+            elDom = meshElems(elNum)%domain
+            elK = femKs(elDom)
+            elTs = femTvals(elNodes)
+            elSpFns = getElementShapeFunctions(elNum)
+            sfFnCoeff = elSpFns(:,coeffInd)
+            qFace = qFace + elK*fcarea*dot_product(sfFnCoeff,elTs)
+        end do
+        femSurfQdot(sfNum) = qFace
+    end subroutine femGetSurfQdot
 
 	subroutine writeVtkResults()
 		integer,parameter :: resFid=246,nCorners=4,tetType=10

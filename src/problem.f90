@@ -24,9 +24,9 @@ module problem
 		call readRtDataFile(fRtDat)
 		call readFemDataFile(fFemDat)
 		call rtInit()
-		allocate(rtSfPowRatio(rtNumEmSfs))
-		rtSfPowRatio = (/1.d0/)
-		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
+!		allocate(rtSfPowRatio(rtNumEmSfs))
+!		rtSfPowRatio = (/1.d0/)
+!		rtRefRayPow = rtSysRadPow/real(rtMCNumRays,8)
 		call traceFromSurfLED()
 		call binScreenPolar()
 		call setMeshNodalValues(rtNodalSrc,"S")
@@ -46,6 +46,14 @@ module problem
 		call readFemDataFile(fFemDat)
 		femBCsKnown = .true.
 		call runFem()
+		call femGetSurfQdot(1,3)
+		call femGetSurfQdot(2,3)
+		call femGetSurfQdot(7,3)
+		call femGetSurfQdot(8,3)
+		write(*,*)"Fem surface flows:"
+		write(*,'(2(e20.12,2x))') femSurfQdot(1),femSurfQdot(2)
+		write(*,'(2(e20.12,2x))') femSurfQdot(9),femSurfQdot(10)
+		call femClose()
 	end subroutine femSimple
 
 	subroutine rtSimple(fMesh,fRt)
@@ -55,13 +63,6 @@ module problem
 		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
 		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
 		call readMeshDataFile(fMeshDat)
-		call readRtDataFile(fRtDat)
-		call rtInit()
-		call traceFromSurfLED()
-		call binScreenPolar()
-		call getScreenBinFluxes()
-		call rtClose()
-		rtRepeatMesh = .true.
 		call readRtDataFile(fRtDat)
 		call rtInit()
 		call traceFromSurfLED()
