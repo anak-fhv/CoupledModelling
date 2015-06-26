@@ -40,6 +40,14 @@ program runModel
 		call get_command_argument(3,fRt)
 		write (*,'(a,2x,a)') "MCRT data file: ", trim(fRt)
 		call simAnnealing(fMesh,fRt)
+	elseif(simType .eq. "MI") then
+		write(*,'(/a)') "Mean Intercept Length Calculations."
+		write(*,'(/a)') "Make sure inputs are for 2 domains."
+		call get_command_argument(2,fMesh)
+		write (*,'(a,2x,a)') "Mesh data file: ", trim(fMesh)
+		call get_command_argument(3,fRt)
+		write (*,'(a,2x,a)') "MCRT data file: ", trim(fRt)
+		call meanIntercept(fMesh,fRt)
 	elseif(simType .eq. "CM") then
 		write(*,'(/a)') "Coupled RT-FEM simulation selected."
 		if(ct .lt. 4) then

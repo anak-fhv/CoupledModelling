@@ -244,6 +244,7 @@ module utilities
 		elseif(fcNum == 4) then
 			fcNodes = (/1,3,4/)
 		else
+			write(*,'(a)')"Face index received: ", fcNum
 			write(*,'(a)')"Face index not valid, must be between 1-4."
 			stop
 		end if

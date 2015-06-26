@@ -16,6 +16,13 @@ module mesh
 		real(8) :: volume,centroid(3)
 	end type tetraElement
 
+	type subVolume
+		integer :: domain,numElems
+		integer,allocatable :: elemList(:)
+		real(8) :: volume
+		real(8),allocatable :: volCDF(:)
+	end type subVolume
+
 	type surface
 		character(len=16) :: sfName
 		integer :: sfId,numFcs
@@ -40,6 +47,7 @@ module mesh
 	real(8),allocatable :: meshTemperatures(:),meshSources(:),			&
 	meshVerts(:,:),meshStVals(:),meshDomVols(:)
 	type(tetraElement),allocatable :: meshElems(:)
+	type(subVolume),allocatable :: meshDomains(:)
 	type(surface),allocatable :: meshSurfs(:)
 	type(elementBin),allocatable :: meshElBins(:,:,:)
 !	Inputs
@@ -133,21 +141,35 @@ module mesh
     end subroutine readMeshElements
 
 	subroutine readMeshElementDomains(fNum)
-		integer :: i,j,k,doSize,cSize,temp(10)
+		integer :: i,j,k,doSize,cSize,ctInner,temp(10)
         integer,intent(in) :: fNum
 
+		if(.not.(allocated(meshDomains))) then
+			allocate(meshDomains(meshNumDoms))
+		end if
         do i=1,meshNumDoms
             read(fNum,'(i8)') doSize
+			meshDomains(i)%domain = i
+			meshDomains(i)%numElems = doSize
+			if(.not.(allocated(meshDomains(i)%elemList))) then
+				allocate(meshDomains(i)%elemList(doSize))
+			end if
+			if(.not.(allocated(meshDomains(i)%volCDF))) then
+				allocate(meshDomains(i)%volCDF(doSize))
+			end if
             if(mod(doSize,10) == 0) then
                 cSize = doSize/10
             else
                 cSize = 1 + (doSize/10)
             end if
+			ctInner = 0
             do j=1,cSize
                 read(fNum,'(10(1x,i8))') temp
                 do k=1,10
                     if(temp(k) .ne. 0) then
                         meshElems(temp(k))%domain = i
+						ctInner = ctInner + 1
+						meshDomains(i)%elemList(ctInner) = temp(k)
                     end if
                 end do
             end do
@@ -537,15 +559,31 @@ module mesh
 
 	subroutine populateElementVolumes()
 		integer :: i,elDom
+		integer,allocatable :: domCt(:)
+		real(8) :: tempVal
 
 		if(.not.(allocated(meshDomVols))) then
 			allocate(meshDomVols(meshNumDoms))
 		end if
+		allocate(domCt(meshNumDoms))
+		domCt = 0
 		meshDomVols = 0.d0
 		do i=1,meshNumElems
 			meshElems(i)%volume = getElementVolume(i)
 			elDom = meshElems(i)%domain
+			domCt(elDom) = domCt(elDom) + 1
 			meshDomVols(elDom) = meshDomVols(elDom)+meshElems(i)%volume
+			if(domCt(elDom).eq. 1) then
+				meshDomains(elDom)%volCDF(domCt(elDom)) = &
+				meshElems(i)%volume
+			else
+				tempVal = meshDomains(elDom)%volCDF(domCt(elDom)-1)
+				meshDomains(elDom)%volCDF(domCt(elDom)) = tempVal + &
+				meshElems(i)%volume
+			end if
+		end do
+		do i=1,meshNumDoms
+			meshDomains(i)%volCDF = meshDomains(i)%volCDF/meshDomVols(i)
 		end do
 	end subroutine populateElementVolumes
 

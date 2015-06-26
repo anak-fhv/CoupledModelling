@@ -403,18 +403,46 @@ module rt
 		inFc = insideFaceCheck(fcVerts,pt)
 	end function checkNewPt
 
-	subroutine startRayInVolume(emEl,pInt,pt,dir)
+!	subroutine startRayInVolume(emEl,pInt,pt,dir)
+!		integer :: elNodes(4)
+!		integer,intent(in) :: emEl
+!		real(8) :: ec(4,3)
+!		real(8),intent(out) :: pInt,pt(3),dir(3)
+
+!		elNodes = meshElems(emEl)%nodes
+!		ec = meshVerts(elNodes,:)
+!		pt = selTetraPoint(ec)
+!		dir = getRaySphDir()
+!		pInt = getRayPathIntegral()
+!	end subroutine startRayInVolume
+
+	subroutine startRayInVolume(emDomGiven,emEl,pInt,pt,dir)
 		integer :: elNodes(4)
-		integer,intent(in) :: emEl
+		integer,intent(in) :: emDomGiven
+		integer,intent(out) :: emEl
 		real(8) :: ec(4,3)
 		real(8),intent(out) :: pInt,pt(3),dir(3)
 
+		call chooseVolEmittingElement(emDomGiven,emEl)
 		elNodes = meshElems(emEl)%nodes
 		ec = meshVerts(elNodes,:)
 		pt = selTetraPoint(ec)
 		dir = getRaySphDir()
 		pInt = getRayPathIntegral()
 	end subroutine startRayInVolume
+
+	subroutine chooseVolEmittingElement(emDomGiven,emEl)
+		integer :: ind1,ind2
+		integer,intent(in) :: emDomGiven
+		integer,intent(out) :: emEl
+		real(8) :: rElNum
+		type(subVolume) :: rayDom
+
+		rayDom = meshDomains(emDomGiven)
+		call random_number(rElNum)
+		call bisLocReal(rayDom%volCDF,rElNum,ind1,ind2)
+		emEl = rayDom%elemList(ind2)
+	end subroutine chooseVolEmittingElement
 
 	subroutine startRayFromSurf(emEl,emFc,pInt,pt,dir)
 		integer :: remNo,fcNodes(3),elNodes(4)
@@ -909,7 +937,7 @@ module rt
 		nSctDirs=194,nReEmDrp=195,nExitPts=196,nOutPts=197,nBotPts=198,	&
 		nTravLen = 199,lcYellow=6,lcBlue=3
 		integer :: i,j,stEl,emEl,emFc,endEl,outPtCt,reEmCt,reEmDropCt,	&
-		lambda,elNodes(4),plcHlder
+		lambda,endFc,elNodes(4),plcHlder
 		real(8) :: pInt,rAbs,rReEm,tcos,pt(3),dir(3),endPt(3),dirOut(3),&
 		endDir(3),ptScr(3),spFnVals(4)
 		logical :: outPt,vExit,byAbs,scatter,reEmission,colCon
@@ -919,7 +947,7 @@ module rt
 					 fTravLen*72
 
 
-!		fSfEmPts=commResDir//trim(adjustl(rtfResPre))//"_surfems.out"
+		fSfEmPts=commResDir//trim(adjustl(rtfResPre))//"_surfems.out"
 		fSfAbPts=commResDir//trim(adjustl(rtfResPre))//"_surfpts.out"
 		fSctDirs=commResDir//trim(adjustl(rtfResPre))//"_sctDirs.out"
 		fReEmDrp=commResDir//trim(adjustl(rtfResPre))//"_reEmDrp.out"
@@ -928,7 +956,7 @@ module rt
 		fOutPts=commResDir//trim(adjustl(rtfResPre))//"_outPts.out"
 		fBotPts=commResDir//trim(adjustl(rtfResPre))//"_botPts.out"
 		fTravLen=commResDir//trim(adjustl(rtfResPre))//"_travLen.out"
-!		open(nSfEmFil,file=fSfEmPts)
+		open(nSfEmFil,file=fSfEmPts)
 		open(nSfAbFil,file=fSfAbPts)
 		open(nScrPts,file=fScrPts)
 		open(nSctDirs,file=fSctDirs)
@@ -943,8 +971,9 @@ module rt
 		do i=1,rtMCNumRays
 			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
 !			write(*,*) "Ray: ", i
-			call startRayFromSurf(emEl,emFc,pInt,pt,dir)
-!			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
+			call startRayFromSurf(emEl,emFc,pInt,pt,dir)		! Commented for Mean Path to Intersection calculations
+!			call startRayInVolume(emEl,pInt,pt,dir)
+			write(nSfEmFil,'(6(f15.12,2x))') pt,dir
 			lambda = lcBlue
 			reEmCt = 0
 			rtCurrLambda = 1		! Hard coded, needs to change
@@ -960,7 +989,7 @@ module rt
 !			call traceTrans(i,stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
 !			byAbs,endEl,endPt,endDir)
 			call traceTrans(stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
-			byAbs,endEl,endPt,endDir)
+			byAbs,endEl,endFc,endPt,endDir)
 !			Handle the exit of a ray from the volume
 			if(vExit) then
 				call handleExit(outPt,outPtCt,endPt,endDir,lambda,		&
@@ -974,7 +1003,10 @@ module rt
 
 			if(byAbs) then
 				rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-				write(nSfAbFil,'(3(f15.12,2x),a,i2)') endPt,"sf",rtCurrDom
+				! New addition to insert absorption surface number
+				plcHlder = meshElems(endEl)%neighbours(endFc,3)
+!				write(nSfAbFil,'(3(f15.12,2x),a,i2)') endPt,"sf",rtCurrDom
+				write(nSfAbFil,'(3(f15.12,2x),2(i3,2x))') endPt,plcHlder,rtCurrDom
 				call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
 				elNodes = meshElems(endEl)%nodes
 				rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + &
@@ -1114,6 +1146,66 @@ module rt
 		colCon = (rtDomColCon(rtCurrDom,rtCurrLambda).eq.1)
 	end subroutine checkColourConversion
 
+	subroutine meanInterceptLength()
+		integer,parameter :: domNum=2,nVolEmFil=151,nOutPts=152,		&
+		nExitPts=153,nScrPts=154,nBotPts=155,nTravLen=156,nAbsFil=157,	&
+		lambda=3
+		integer :: i,j,k,emEl,stEl,endEl,endFc,endSf,outPtCt
+		real(8) :: pInt,pt(3),dir(3),endPt(3),endDir(3)
+		logical :: outPt,vExit,byAbs
+		character(*),parameter :: wFmt = '(a,2x,i8)'
+		character :: fVolEm*72,fOutPts*72,fExitPts*72,fScrPts*72,		&
+		fBotPts*72,fTravLen*72,fAbsFil*72
+
+		fVolEm=commResDir//trim(adjustl(rtfResPre))//"_volEms.res"
+		fOutPts=commResDir//trim(adjustl(rtfResPre))//"_outPts.out"
+		fExitPts=commResDir//trim(adjustl(rtfResPre))//"_exitPts.out"
+		fScrPts=commResDir//trim(adjustl(rtfResPre))//"_scrPts.out"
+		fBotPts=commResDir//trim(adjustl(rtfResPre))//"_botPts.out"
+		fTravLen=commResDir//trim(adjustl(rtfResPre))//"_travLen.res"
+		fAbsFil=commResDir//trim(adjustl(rtfResPre))//"_volAbs.res"
+
+		open(nVolEmFil,file=fVolEm)
+		open(nOutPts,file=fOutPts,position='append')
+		open(nExitPts,file=fExitPts)
+		open(nScrPts,file=fScrPts)
+		open(nBotPts,file=fBotPts)
+		open(nTravLen,file=fTravLen)
+		open(nAbsFil,file=fAbsFil)
+
+		outPtCt = 0
+		rtCurrLambda = 1
+		do i=1,rtMCNumRays
+			if(mod(i,rtMCNumRays/10).eq.0) write(*,*) "Ray: ", i
+			call startRayInVolume(domNum,emEl,pInt,pt,dir)
+			rtRN = i
+			write(nVolEmFil,'(6(f15.12,2x))') pt,dir
+			stEl = emEl
+			call traceTrans(stEl,pt,dir,pInt,nOutPts,outPt,vExit,		&
+			byAbs,endEl,endFc,endPt,endDir)
+!			Handle the exit of a ray from the volume
+			if(vExit) then
+				call handleExit(outPt,outPtCt,endPt,endDir,lambda,		&
+				nExitPts,nScrPts,nBotPts)
+				if(outPtCt .gt. rtLimOutPts) then
+					write(*,*)"Leaving tracing routine now."
+					return
+				end if
+				cycle
+			end if
+			if(byAbs) then
+				! New addition to insert absorption surface number
+				endSf = meshElems(endEl)%neighbours(endFc,3)
+				write(nAbsFil,'(3(f15.12,2x),2(i3,2x))') endPt,endSf
+				cycle
+			end if
+		end do
+		write(*,wFmt)"Out of face points: ", outPtCt
+		write(*,wFmt)"Absorptions inside volume: ", rtInVolAbsCt
+		write(*,wFmt)"Absorptions at black surfaces: ",rtBBAbsNum
+		write(nTravLen,'(e14.6)')rtRayTravs
+	end subroutine meanInterceptLength
+
 !------------------------------------------------------------------------
 !	END algorithms for multidomain tracing
 !------------------------------------------------------------------------
@@ -1127,12 +1219,12 @@ module rt
 !	subroutine traceTrans(rN,stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
 !	byAbs,endEl,endPt,endDir)
 	subroutine traceTrans(stEl,stPt,stDir,pInt,nFOutPts,outPt,vExit,	&
-	byAbs,endEl,endPt,endDir)
+	byAbs,endEl,endFc,endPt,endDir)
 		integer :: i,noNum,rayIterCt,nhbrFc,cEl,newFc,cDom,nhbrEl,		&
 		nhbrDom,nhbrSf,parById,elNodes(4)
 !		integer,intent(in) :: stEl,rN,nFOutPts
 		integer,intent(in) :: stEl,nFOutPts
-		integer,intent(out) :: endEl
+		integer,intent(out) :: endEl,endFc
 		real(8) :: lTrav,lToFc,optPath,cBeta,pt(3),dir(3),newDir(3),	&
 		ec(4,3)
 		real(8),intent(in) :: pInt,stPt(3),stDir(3)
@@ -1217,6 +1309,7 @@ module rt
 					endEl = cEl
 					endPt = pt
 					endDir = dir
+					endFc = newFc
 					byAbs = .true.
 					optPath = MEGA
 					rtBBAbsNum = rtBBAbsNum + 1
@@ -1253,6 +1346,7 @@ module rt
 							endEl = cEl
 							endPt = pt
 							endDir = dir
+							endFc = newFc
 							optPath = MEGA
 							rtParSfAbsNum = rtParSfAbsNum + 1
 							byAbs = .true.
@@ -1270,6 +1364,7 @@ module rt
 							endEl = cEl
 							endPt = pt
 							endDir = dir
+							endFc = newFc
 							optPath = MEGA
 							rtParSfAbsNum = rtParSfAbsNum + 1
 							byAbs = .true.
@@ -1348,96 +1443,96 @@ module rt
 !	hereon. These are not used for the LED case
 !------------------------------------------------------------------------
 
-	subroutine traceFromVol()
-		integer,parameter :: limoutpt=5
-		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
-		integer :: i,j,k,cEl,elNr,endEl,outPtCt,elNodes(4)
-		integer,allocatable :: emSfIds(:)
-		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
-		logical :: outPt
-		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
-								  vlAbPtsFil=commResDir//"volpts.out"
+!	subroutine traceFromVol()
+!		integer,parameter :: limoutpt=5
+!		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
+!		integer :: i,j,k,cEl,elNr,endEl,outPtCt,elNodes(4)
+!		integer,allocatable :: emSfIds(:)
+!		real(8) :: pL,pt(3),dir(3),endPt(3),spFnVals(4)
+!		logical :: outPt
+!		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
+!								  vlAbPtsFil=commResDir//"volpts.out"
 
-		open(nVlEmPtsFil,file=vlEmPtsFil)
-		open(nVlAbPtsFil,file=vlAbPtsFil)
-		outPtCt = 0
-		do i=1,meshNumElems
-			elNr = rtElemSto(i)
-			if(elNr .ne. 0) then
-				do j=1,elNr
-					call startRayInVolume(i,pL,pt,dir)
-					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
-					cEl = i
-					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
-					if(outPt) then
-						outPtCt = outPtCt + 1
-						if(outptct .ge. limoutpt) then
-							write(*,*)"Count of dropped points reached&
-							& limit."
-							stop
-						end if
-					end if
-					if(endEl .ne. 0) then
-						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
-					end if
-				end do
-			end if
-		end do
-		close(nVlAbPtsFil)
-		close(nVlEmPtsFil)
-	end subroutine traceFromVol
+!		open(nVlEmPtsFil,file=vlEmPtsFil)
+!		open(nVlAbPtsFil,file=vlAbPtsFil)
+!		outPtCt = 0
+!		do i=1,meshNumElems
+!			elNr = rtElemSto(i)
+!			if(elNr .ne. 0) then
+!				do j=1,elNr
+!					call startRayInVolume(i,pL,pt,dir)
+!					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
+!					cEl = i
+!					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+!					if(outPt) then
+!						outPtCt = outPtCt + 1
+!						if(outptct .ge. limoutpt) then
+!							write(*,*)"Count of dropped points reached&
+!							& limit."
+!							stop
+!						end if
+!					end if
+!					if(endEl .ne. 0) then
+!						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+!						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
+!					end if
+!				end do
+!			end if
+!		end do
+!		close(nVlAbPtsFil)
+!		close(nVlEmPtsFil)
+!	end subroutine traceFromVol
 
-	subroutine traceVolPowerBased()
-		integer,parameter :: limoutpt=5
-		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
-		integer :: i,j,k,cEl,elNumRays,endEl,outPtCt,elNodes(4)
-		integer,allocatable :: emSfIds(:)
-		real(8) :: pL,elRayPow,pt(3),dir(3),endPt(3),spFnVals(4)
-		logical :: outPt
-		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
-								  vlAbPtsFil=commResDir//"volpts.out"
+!	subroutine traceVolPowerBased()
+!		integer,parameter :: limoutpt=5
+!		integer,parameter :: nVlAbPtsFil=286,nVlEmPtsFil=208
+!		integer :: i,j,k,cEl,elNumRays,endEl,outPtCt,elNodes(4)
+!		integer,allocatable :: emSfIds(:)
+!		real(8) :: pL,elRayPow,pt(3),dir(3),endPt(3),spFnVals(4)
+!		logical :: outPt
+!		character(*),parameter :: vlEmPtsFil=commResDir//"volems.out",	&
+!								  vlAbPtsFil=commResDir//"volpts.out"
 
-		open(nVlEmPtsFil,file=vlEmPtsFil)
-		open(nVlAbPtsFil,file=vlAbPtsFil)
-		rtNodalSrc = 0.0d0
-		outPtCt = 0
-		do i=1,meshNumElems
-			call getElementNumRays(i,elNumRays,elRayPow)
-				do j=1,elNumRays
-					call startRayInVolume(i,pL,pt,dir)
-					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
-					call shapeFunctionsAtPoint(i,pt,spFnVals)
-					elNodes = meshElems(i)%nodes
-					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) - 		&
-					elRayPow*spFnVals
-					cEl = i
-					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
-					if(outPt) then
-						outPtCt = outPtCt + 1
-						if(outptct .ge. limoutpt) then
-							write(*,*)"Count of dropped points reached&
-							& limit."
-							stop
-						end if
-					end if
-					if(endEl .ne. 0) then
-						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
-						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
-						call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
-						elNodes = meshElems(endEl)%nodes
-						rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + 	&
-						elRayPow*spFnVals
-					end if
-				end do
-		end do
-		close(nVlAbPtsFil)
-		close(nVlEmPtsFil)
-		rtNodalSrc = rtNodalSrc + rtWallSrc
-		open(975,file="../obj/tempRadSrc.out")
-			write(975,'(f20.13)') rtNodalSrc
-		close(975)
-	end subroutine traceVolPowerBased
+!		open(nVlEmPtsFil,file=vlEmPtsFil)
+!		open(nVlAbPtsFil,file=vlAbPtsFil)
+!		rtNodalSrc = 0.0d0
+!		outPtCt = 0
+!		do i=1,meshNumElems
+!			call getElementNumRays(i,elNumRays,elRayPow)
+!				do j=1,elNumRays
+!					call startRayInVolume(i,pL,pt,dir)
+!					write(nVlEmPtsFil,'(6(f15.12,2x))') pt,dir
+!					call shapeFunctionsAtPoint(i,pt,spFnVals)
+!					elNodes = meshElems(i)%nodes
+!					rtNodalSrc(elNodes) = rtNodalSrc(elNodes) - 		&
+!					elRayPow*spFnVals
+!					cEl = i
+!					call traceSingleRay(pt,dir,pL,cEl,outPt,endEl,endPt)
+!					if(outPt) then
+!						outPtCt = outPtCt + 1
+!						if(outptct .ge. limoutpt) then
+!							write(*,*)"Count of dropped points reached&
+!							& limit."
+!							stop
+!						end if
+!					end if
+!					if(endEl .ne. 0) then
+!						rtElemAbs(endEl) = rtElemAbs(endEl) + 1
+!						write(nVlAbPtsFil,'(3(f15.12,2x))') endPt
+!						call shapeFunctionsAtPoint(endEl,endPt,spFnVals)
+!						elNodes = meshElems(endEl)%nodes
+!						rtNodalSrc(elNodes) = rtNodalSrc(elNodes) + 	&
+!						elRayPow*spFnVals
+!					end if
+!				end do
+!		end do
+!		close(nVlAbPtsFil)
+!		close(nVlEmPtsFil)
+!		rtNodalSrc = rtNodalSrc + rtWallSrc
+!		open(975,file="../obj/tempRadSrc.out")
+!			write(975,'(f20.13)') rtNodalSrc
+!		close(975)
+!	end subroutine traceVolPowerBased
 
 !	subroutine traceFromSurf(pRatio)
 !		integer,parameter :: limoutpt=5

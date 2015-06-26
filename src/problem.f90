@@ -71,6 +71,19 @@ module problem
 		call rtClose()
 	end subroutine rtSimple
 
+	subroutine meanIntercept(fMesh,fRt)
+		character(32),intent(in) :: fMesh,fRt
+		character(72) :: fMeshDat,fRtDat
+
+		fMeshDat = commDatDir//trim(adjustl(fMesh))//commDatExt
+		fRtDat = commDatDir//trim(adjustl(fRt))//commDatExt
+		call readMeshDataFile(fMeshDat)
+		call readRtDataFile(fRtDat)
+		call rtInit()
+		call meanInterceptLength()
+		call rtClose()
+	end subroutine meanIntercept
+
 	subroutine simAnnealing(fMesh,fRt)
 		integer,parameter :: nSARuns = 400,nBins = 26,nSpecDat = 161,	&
 		nRunsDat = 162, nCFs = 163, nParams = 5
